@@ -1,0 +1,3167 @@
+* Name: CPS Monthly analysis 
+* Date Created: March 1, 2024
+* Author: Yong Suk Lee [edited by Jacob Dominski]
+* Last Updated: March 18, 2024
+
+
+********************************************************************************************************************
+*************************************************** Housekeeping ***************************************************
+********************************************************************************************************************
+
+*Jacob
+global data_root = "/Users/jdomins2/Desktop/CPS_Work/Data"
+global export_root = "/Users/jdomins2/Desktop/CPS_Work/Output"
+use "$data_root/Cleaned/monthly_cps_w_openAI_claude_llama_scores.dta", clear
+
+*Professor Lee
+cd /Users/ylee/Dropbox/01Research/0_25_GenAIEmp/EconometricAnalysis
+use /Users/ylee/Dropbox/01Research/0_25_GenAIEmp/EconometricAnalysis/Data/monthly_cps_w_openAI_claude_llama_scores
+
+
+
+********************************************************************************************************************
+***************************************************** Cleaning *****************************************************
+********************************************************************************************************************
+
+****************************************** Cleaning Independent Variables ******************************************
+
+* Rename Exposure
+rename cps_openai_final_exp_s* openai*
+rename cps_claude_final_exp_s* claude*
+rename cps_llama_final_exp_s* llama*
+rename cps_chatgpt_final_exp_s2 chat2
+
+* Trim the Data
+drop nativity hispan asian yrimmig bpl citizen
+keep if year>=2020
+keep if age>=18
+keep if age<65
+
+
+* Create Dummies
+gen Dfem=0
+replace Dfem=1 if sex==2
+
+* Age
+gen agegroup=1
+replace agegroup=2 if age>30 & age<=50
+replace agegroup=3 if age>50
+tab agegroup, gen(Dage)
+
+* Race
+gen Dwhite=0
+replace Dwhite=1 if race==100
+gen Dblack=0
+replace Dblack =1 if race==200
+gen Dasian=0
+replace Dasian=1 if race==651
+gen Dother=0
+replace Dother=1 if Dwhite~=1 & Dblack~=1 & Dasian~=1
+
+/*
+* Region 
+gen Dcoastal=0
+replace Dcoastal=1 if region==42 | region==11 | region==12
+
+gen Dwestcoast=0
+replace Dwestcoast=1 if region==42
+*/
+
+* Datetime: Month dummies (already created when cleaning the CPS data)
+keep if ntime>=-12
+
+
+* Dummy for Post ChatGPT 
+gen Post=0
+replace Post=1 if time>=754
+
+
+* Check
+* GPT3.5 Nov 30,2022 (Dec 2022=754)
+* GPT4 March 14, 2023 (756 1/23 757 758 3/23)
+* GPTstore Jan. 2024 (759 760 761(June) 762 763 764 (Sep) 765 766 767 (Dec 2023))
+* GPT4o May 13, 2024
+br time ntime Post
+
+
+* Create Continous Treatment (Exposure)
+gen chatgptexp=openai1
+replace chatgptexp=openai2 if ntime>=0
+replace chatgptexp=openai3 if ntime>=4
+replace chatgptexp=openai4 if ntime>=24
+
+
+gen claudeexp=claude1
+replace claudeexp=claude2 if ntime>=0
+replace claudeexp=claude3 if ntime>=4
+replace claudeexp=claude4 if ntime>=24
+
+
+* Continuous Treatment Interaction Terms
+foreach var in openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5{
+	gen Postx`var'= Post * `var'
+}
+
+* Exposure Quartiles for OpenAI and Claude Exposure Scores, stages 1, 3, & 5
+foreach var in openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5{
+	xtile q_`var' = `var', nquantiles(4)
+}
+
+* Exposure Quartile Dummies
+foreach var in openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5 {
+	tab q_`var', gen(Dq`var')
+}
+
+* Renaming Quartile Dummies
+foreach var in openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5{
+	rename Dq`var'1 DQ1_`var'
+	rename Dq`var'2 DQ2_`var'
+	rename Dq`var'3 DQ3_`var'
+	rename Dq`var'4 DQ4_`var'
+}
+
+* Creating Quartile-based Interaction Terms
+foreach var in openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5 {
+    forvalues num = 1/4 {
+gen PostxDQ`num'_`var'= Post*DQ`num'_`var'
+	}
+}
+
+****************************************** Cleaning Independent Variables ******************************************
+
+* Checking Unemployment Statistics by Exposure Score
+tab empstat
+tabstat openai1 openai3, by(empstat) stats(n mean min max)
+
+* Creating Dummy for Unemployed, Experienced Workers
+gen Dunemp=0 if empstat~=.
+replace Dunemp=1 if empstat==21 & Dunemp~=.
+
+* Creating Dummy for Unemployed, new worker 
+gen Dunemp_new=0 if empstat~=.
+replace Dunemp_new=1 if empstat==22 & Dunemp_new~=.
+
+* Fixing Duration Unemployed & Creating a Log Version
+replace durunemp=. if durunemp>=999
+gen logdurunemp=log(durunemp+1)
+
+* Fixing Work Hours Last Week & Creating a Log Version
+tab ahrsworkt
+replace ahrsworkt=. if ahrsworkt>=999
+tab ahrswork1
+replace ahrswork1=. if ahrswork1>=999
+replace uhrsworkt=. if uhrsworkt>=997
+replace uhrswork1=. if uhrswork1>=997
+
+gen logahrswork1=log(ahrswork1+1)
+
+
+* Creating a Same work Dummy
+gen Diffworkact=0 if actsame~=99
+replace Diffworkact=1 if actsame==2 & Diffworkact~=.
+
+
+* Creating a Full Time Dummy
+gen Fulltime=0 if wkstat~=99
+replace Fulltime=1 if wkstat==11 & Fulltime~=.
+
+* Creating Continuous Time Interaction Terms
+foreach var in openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5 {
+    forvalues num = 1/4 {
+gen ntimexDQ`num'_`var'= ntime*DQ`num'_`var'
+	}
+}
+
+* Creating Continuous Time and Treatment Interaction Terms
+foreach var in openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5{
+	gen ntimex`var'= ntime * `var'
+}
+
+save "$data_root/Cleaned/cps_for_analysis_v4.dta", replace
+
+gen demployed = 0
+replace demployed = 1 if empstat == 10 | empstat == 12
+gen dlabforce = 1
+replace dlabforce = 0 if empstat == 31 | empstat == 32 | empstat == 33 | empstat == 34 | empstat == 35 | empstat ==36
+
+preserve
+collapse (sum) emp_count=demployed labor_force_count=dlabforce, by(year month cps_code)
+save "$data_root/Working/monthly_emp_labforce_by_occ.dta", replace
+restore
+
+merge m:1 year month cps_code using "$data_root/Working/monthly_emp_labforce_by_occ.dta"
+gen unemp_rate = 1 - (emp_count / labor_force_count) if labor_force_count > 0
+save "$data_root/Cleaned/cps_for_analysis_v4.dta", replace
+
+********************************************************************************************************************
+********************************************* Fixed Effect Regressions *********************************************
+********************************************************************************************************************
+
+*********************************** Continuous Exposure (Robust Standard Errors) ***********************************
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+
+*OpenAI (No Controls)
+reghdfe Dunemp chatgptexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", replace
+reghdfe ahrswork1 chatgptexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe ahrsworkt chatgptexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe durunemp chatgptexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe unemp_rate chatgptexp [pweight=wtfinl], absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+*reghdfe ahrswork2 chatgptexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls
+
+*Claude (No Controls)
+reghdfe Dunemp claudeexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe ahrswork1 claudeexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe ahrsworkt claudeexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe durunemp claudeexp [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe unemp_rate claudeexp [pweight=wtfinl], absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append	
+*reghdfe ahrswork2 claudeexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls	
+
+	
+*OpenAI (Controls)
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe ahrsworkt chatgptexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe unemp_rate chatgptexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+
+*Claude (Controls)
+reghdfe Dunemp claudeexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe ahrswork1 claudeexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe ahrsworkt claudeexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe durunemp claudeexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+reghdfe unemp_rate claudeexp Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using "$export_root/march/FE/feresults_s1.tex", append
+
+	
+	
+*************************** Stage 1 Exposure (Robust Standard Errors, No Occupation FEs) ***************************
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+
+*Stage 1 (OpenAI)
+reghdfe Dunemp openai1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", replace
+reghdfe ahrswork1 openai1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe ahrsworkt openai1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe durunemp openai1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe unemp_rate openai1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+*reghdfe ahrswork2 chatgptexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls
+
+*Stage 1 (Claude)
+reghdfe Dunemp claude1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe ahrswork1 claude1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe ahrsworkt claude1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe durunemp claude1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe unemp_rate claude1 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append	
+*reghdfe ahrswork2 claudeexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls	
+
+	
+* Stage 1 w/ Controls (OpenAI)
+reghdfe Dunemp openai1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe ahrswork1 openai1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe ahrsworkt openai1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe durunemp openai1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe unemp_rate openai1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+
+* Stage 1 w/ Controls (Claude)
+reghdfe Dunemp claude1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe ahrswork1 claude1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe ahrsworkt claude1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe durunemp claude1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+reghdfe unemp_rate claude1 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s1G.tex", append
+
+*************************** Stage 2 Exposure (Robust Standard Errors, No Occupation FEs) ***************************
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+
+*Stage 2 (OpenAI)
+reghdfe Dunemp openai2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", replace
+reghdfe ahrswork1 openai2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe ahrsworkt openai2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe durunemp openai2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe unemp_rate openai2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+*reghdfe ahrswork2 chatgptexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls
+
+*Stage 2 (Claude)
+reghdfe Dunemp claude2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe ahrswork1 claude2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe ahrsworkt claude2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe durunemp claude2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe unemp_rate claude2 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append	
+*reghdfe ahrswork2 claudeexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls	
+
+	
+* Stage 2 w/ Controls (OpenAI)
+reghdfe Dunemp openai2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe ahrswork1 openai2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe ahrsworkt openai2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe durunemp openai2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe unemp_rate openai2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+
+* Stage 2 w/ Controls (Claude)
+reghdfe Dunemp claude2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe ahrswork1 claude2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe ahrsworkt claude2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe durunemp claude2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+reghdfe unemp_rate claude2 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s2.tex", append
+
+*************************** Stage 3 Exposure (Robust Standard Errors, No Occupation FEs) ***************************
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+
+*Stage 3 (OpenAI)
+reghdfe Dunemp openai3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", replace
+reghdfe ahrswork1 openai3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe ahrsworkt openai3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe durunemp openai3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe unemp_rate openai3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+*reghdfe ahrswork2 chatgptexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls
+
+*Stage 3 (Claude)
+reghdfe Dunemp claude3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe ahrswork1 claude3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe ahrsworkt claude3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe durunemp claude3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe unemp_rate claude3 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append	
+*reghdfe ahrswork2 claudeexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls	
+
+	
+* Stage 3 w/ Controls (OpenAI)
+reghdfe Dunemp openai3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe ahrswork1 openai3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe ahrsworkt openai3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe durunemp openai3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe unemp_rate openai3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+
+* Stage 3 w/ Controls (Claude)
+reghdfe Dunemp claude3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe ahrswork1 claude3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe ahrsworkt claude3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe durunemp claude3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+reghdfe unemp_rate claude3 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s3.tex", append
+
+*************************** Stage 4 Exposure (Robust Standard Errors, No Occupation FEs) ***************************
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+
+*Stage 4 (OpenAI)
+reghdfe Dunemp openai4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", replace
+reghdfe ahrswork1 openai4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe ahrsworkt openai4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe durunemp openai4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe unemp_rate openai4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+*reghdfe ahrswork2 chatgptexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls
+
+*Stage 4 (Claude)
+reghdfe Dunemp claude4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe ahrswork1 claude4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe ahrsworkt claude4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe durunemp claude4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe unemp_rate claude4 [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append	
+*reghdfe ahrswork2 claudeexp, absorb(cps_code time) vce(rob)
+*	outreg2 using Tables/feresults.xls	
+
+	
+* Stage 4 w/ Controls (OpenAI)
+reghdfe Dunemp openai4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe ahrswork1 openai4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe ahrsworkt openai4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe durunemp openai4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe unemp_rate openai4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+
+* Stage 4 w/ Controls (Claude)
+reghdfe Dunemp claude4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe ahrswork1 claude4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe ahrsworkt claude4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe durunemp claude4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+reghdfe unemp_rate claude4 Dfem i.agegroup i.educ i.race i.state [pweight=wtfinl], absorb(time) vce(rob)
+	outreg2 using "$export_root/march/FE/feresults_s4.tex", append
+
+	
+*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+********************************************************************************************************************
+******************************************* Long Difference Regressions ********************************************
+********************************************************************************************************************
+*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+
+**************************************** Cleaning (Occupation Level Stats) *****************************************
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+
+*Creating Occupation Level Outcome Variables
+collapse (sum) demployed Dunemp dlabforce ///
+         (mean) ahrswork1 ahrsworkt ntime openai1 openai2 openai3 openai4 openai5 claude1 claude2 claude3 claude4 claude5 chatgptexp claudeexp, ///
+         by(year month cps_code)
+
+gen unemp_rate_new = Dunemp / dlabforce
+save "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+
+*Creating My Baseline Measures (Using December 2022 as the baseline month)
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", clear
+preserve
+    keep if ntime == 0 | (ntime == 1 & (cps_code == "8256" | cps_code == "8335" | cps_code == "8910" | cps_code == "9110"))
+    rename demployed emp_baseline
+    rename unemp_rate_new unemp_rate_baseline
+    rename ahrswork1 hrswork1_baseline
+    rename ahrsworkt hrsworkt_baseline
+    keep cps_code emp_baseline unemp_rate_baseline hrswork1_baseline hrsworkt_baseline
+    save "$data_root/Working/baseline_outcomes_dec2022.dta", replace
+restore
+
+
+merge m:1 cps_code using "$data_root/Working/baseline_outcomes_dec2022.dta"
+drop _merge
+gen diff_emp = demployed - emp_baseline
+gen diff_unemp_rate = unemp_rate_new - unemp_rate_baseline
+gen diff_hrswork1 = ahrswork1 - hrswork1_baseline
+gen diff_hrsworkt = ahrsworkt - hrsworkt_baseline
+
+save "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+*Creating Occupational Level Controls
+sort cps_code year month
+
+* Generate total count of workers per occupation-month
+bysort year month cps_code: gen total_workers = _N
+
+* ---- Compute Proportion of Women ----
+bysort year month cps_code: egen num_fem = total(Dfem)
+gen prop_fem = num_fem / total_workers
+
+* ---- Compute Education Shares ----
+gen educ_q1 = (educ <= 72) // Less than high school
+gen educ_q2 = (educ >= 73 & educ <= 110) // HS Degree & Some College
+gen educ_q3 = (educ == 111) // College degree
+gen educ_q4 = (educ >= 123)
+
+bysort year month cps_code: egen num_educ_q1 = total(educ_q1)
+bysort year month cps_code: egen num_educ_q2 = total(educ_q2)
+bysort year month cps_code: egen num_educ_q3 = total(educ_q3)
+bysort year month cps_code: egen num_educ_q4 = total(educ_q4)
+
+gen prop_educ_q1 = num_educ_q1 / total_workers
+gen prop_educ_q2 = num_educ_q2 / total_workers
+gen prop_educ_q3 = num_educ_q3 / total_workers
+gen prop_educ_q4 = num_educ_q4 / total_workers
+
+* ---- Compute Age Group Shares ----
+gen age_30less = (agegroup == 1) // <30
+gen age_30to50 = (agegroup == 2) // 30-50
+gen age_50plus = (agegroup == 3) // 50+
+
+bysort year month cps_code: egen num_age_30less = total(age_30less)
+bysort year month cps_code: egen num_age_30to50 = total(age_30to50)
+bysort year month cps_code: egen num_age_50plus = total(age_50plus)
+
+gen prop_age_30less = num_age_30less / total_workers
+gen prop_age_30to50 = num_age_30to50 / total_workers
+gen prop_age_50plus = num_age_50plus / total_workers
+
+* ---- Compute Race Shares ----
+gen race_white = (race == 100)
+gen race_black = (race == 200)
+gen race_asian = (race == 651)
+gen race_native = (race == 300) // American Indian/Alaska Native
+gen race_pacific = (race == 652) // Hawaiian/Pacific Islander
+gen race_mixed_other = (race > 700) // All other multi-race categories
+
+bysort year month cps_code: egen num_white = total(race_white)
+bysort year month cps_code: egen num_black = total(race_black)
+bysort year month cps_code: egen num_asian = total(race_asian)
+bysort year month cps_code: egen num_native = total(race_native)
+bysort year month cps_code: egen num_pacific = total(race_pacific)
+bysort year month cps_code: egen num_mixed_other = total(race_mixed_other)
+
+gen prop_white = num_white / total_workers
+gen prop_black = num_black / total_workers
+gen prop_asian = num_asian / total_workers
+gen prop_native = num_native / total_workers
+gen prop_pacific = num_pacific / total_workers
+gen prop_mixed_other = num_mixed_other / total_workers
+
+* ---- Keep One Observation per Occupation-Month ----
+collapse (mean) prop_fem prop_educ_q1 prop_educ_q2 prop_educ_q3 prop_educ_q4 ///
+         prop_age_30less prop_age_30to50 prop_age_50plus ///
+         prop_white prop_black prop_asian prop_native prop_pacific prop_mixed_other, by(year month cps_code)
+
+save "$data_root/Working/cps_controls.dta", replace
+
+* ---- Compute State Shares Correctly ----
+use "$data_root/Cleaned/cps_for_analysis_v4.dta", clear
+
+* Count the number of workers in each state within each occupation-month
+bysort year month cps_code state: gen workers_in_state = _N
+
+* Compute total workers in the occupation-month
+bysort year month cps_code: gen total_occupation_workers = _N
+
+* Compute the proportion of workers in each state
+gen prop_state = workers_in_state / total_occupation_workers
+
+* Aggregate to ensure unique state proportions per occupation-month
+collapse (mean) prop_state, by(year month cps_code state)
+
+* Convert state names into numeric codes for reshaping
+egen state_code = group(state)  // Create numeric state identifiers
+drop statefip 
+
+* Reshape to create separate variables for each state
+reshape wide prop_state, i(year month cps_code) j(state_code)
+
+save "$data_root/Working/state_occ_emp_sharesx.dta", replace
+
+
+merge 1:1 year month cps_code using "$data_root/Working/cps_controls.dta"
+drop _merge
+save "$data_root/Working/cps_controls.dta", replace
+
+merge 1:1 year month cps_code using "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta"
+drop _merge
+save "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta", replace
+
+
+********************************************************************************************************************
+********************************** Using 3 Month Periods, Stage Specific Exposure **********************************
+********************************************************************************************************************
+
+******************************* Creating 3-month average outcome vars. and controls ********************************
+
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta", clear
+* Keep only September-November 2024 data
+keep if year == 2024 & (month == 9 | month == 10 | month == 11)
+
+* Collapse to occupation-level averages for outcome and control variables
+collapse (mean) unemp_rate_new demployed ahrswork1 ahrsworkt ///
+prop_age_* prop_white prop_black prop_asian prop_native ///
+prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem, ///
+by(cps_code)
+
+gen log_emp = log(demployed)
+
+* Rename variables to specify they are from 2024
+foreach var of varlist unemp_rate_new log_emp ahrswork1 ahrsworkt ///
+prop_age_* prop_white prop_black prop_asian prop_native ///
+prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem {
+    rename `var' `var'_2024
+}
+
+* Save the dataset for 2024
+save "$data_root/Working/2024_3_month.dta", replace
+
+
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta", clear
+keep if year == 2022 & (month == 9 | month == 10 | month == 11)
+
+* Collapse to occupation-level averages for outcome and control variables
+collapse (mean) unemp_rate_new demployed ahrswork1 ahrsworkt ///
+prop_age_* prop_white prop_black prop_asian prop_native ///
+prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem, ///
+by(cps_code)
+
+gen log_emp = log(demployed)
+
+* Rename variables to specify they are from 2022
+foreach var of varlist unemp_rate_new log_emp ahrswork1 ahrsworkt ///
+prop_age_* prop_white prop_black prop_asian prop_native ///
+prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem {
+    rename `var' `var'_2022
+}
+save "$data_root/Working/2022_3_month.dta", replace
+
+
+* Merge with 2022 data
+merge 1:1 cps_code using "$data_root/Working/2024_3_month.dta"
+drop _merge
+
+* Compute long-difference outcome variables
+gen d_unemp_rate = unemp_rate_new_2024 - unemp_rate_new_2022
+gen d_employed = log_emp_2024 - log_emp_2022
+gen d_ahrswork1 = ahrswork1_2024 - ahrswork1_2022
+gen d_ahrsworkt = ahrsworkt_2024 - ahrsworkt_2022
+
+* Compute long-difference for race/ethnicity variables
+foreach var in prop_white prop_black prop_asian prop_native prop_pacific prop_mixed_other {
+    gen d_`var' = `var'_2024 - `var'_2022
+}
+
+* Compute long-difference for gender
+gen d_prop_fem = prop_fem_2024 - prop_fem_2022
+
+* Compute long-difference for age group proportions
+foreach var in 30less 30to50 50plus {
+    gen d_prop_age_`var' = prop_age_`var'_2024 - prop_age_`var'_2022
+}
+
+* Compute long-difference for education levels
+foreach i of numlist 1/4 {
+    gen d_prop_educ_q`i' = prop_educ_q`i'_2024 - prop_educ_q`i'_2022
+}
+
+* Compute long-difference for state proportions (prop_state1 to prop_state51)
+foreach i of numlist 1/51 {
+    gen d_prop_state`i' = prop_state`i'_2024 - prop_state`i'_2022
+}
+
+
+
+merge 1:m cps_code using "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta"
+drop if _merge == 2
+drop _merge
+
+save "$data_root/Cleaned/3M_LD_Stageexp.dta", replace
+
+egen prop_northeast_2022 = rowtotal(prop_state7_2022 prop_state20_2022 prop_state22_2022 ///
+                                    prop_state30_2022 prop_state31_2022 prop_state33_2022 ///
+                                    prop_state39_2022 prop_state40_2022 prop_state46_2022)
+
+egen prop_midwest_2022 = rowtotal(prop_state14_2022 prop_state15_2022 prop_state16_2022 ///
+                                  prop_state17_2022 prop_state23_2022 prop_state24_2022 ///
+                                  prop_state26_2022 prop_state28_2022 prop_state35_2022 ///
+                                  prop_state36_2022 prop_state42_2022 prop_state50_2022)
+
+egen prop_south_2022 = rowtotal(prop_state1_2022 prop_state4_2022 prop_state8_2022 ///
+                                prop_state9_2022 prop_state10_2022 prop_state11_2022 ///
+                                prop_state18_2022 prop_state19_2022 prop_state21_2022 ///
+                                prop_state25_2022 prop_state34_2022 prop_state37_2022 ///
+                                prop_state41_2022 prop_state43_2022 prop_state44_2022 ///
+                                prop_state47_2022 prop_state49_2022)
+
+egen prop_west_2022 = rowtotal(prop_state2_2022 prop_state3_2022 prop_state5_2022 ///
+                               prop_state6_2022 prop_state12_2022 prop_state13_2022 ///
+                               prop_state27_2022 prop_state29_2022 prop_state32_2022 ///
+                               prop_state38_2022 prop_state45_2022 prop_state48_2022 ///
+                               prop_state51_2022)
+
+
+egen prop_northeast_2024 = rowtotal(prop_state7_2024 prop_state20_2024 prop_state22_2024 ///
+                                    prop_state30_2024 prop_state31_2024 prop_state33_2024 ///
+                                    prop_state39_2024 prop_state40_2024 prop_state46_2024)
+
+egen prop_midwest_2024 = rowtotal(prop_state14_2024 prop_state15_2024 prop_state16_2024 ///
+                                  prop_state17_2024 prop_state23_2024 prop_state24_2024 ///
+                                  prop_state26_2024 prop_state28_2024 prop_state35_2024 ///
+                                  prop_state36_2024 prop_state42_2024 prop_state50_2024)
+
+egen prop_south_2024 = rowtotal(prop_state1_2024 prop_state4_2024 prop_state8_2024 ///
+                                prop_state9_2024 prop_state10_2024 prop_state11_2024 ///
+                                prop_state18_2024 prop_state19_2024 prop_state21_2024 ///
+                                prop_state25_2024 prop_state34_2024 prop_state37_2024 ///
+                                prop_state41_2024 prop_state43_2024 prop_state44_2024 ///
+                                prop_state47_2024 prop_state49_2024)
+
+egen prop_west_2024 = rowtotal(prop_state2_2024 prop_state3_2024 prop_state5_2024 ///
+                               prop_state6_2024 prop_state12_2024 prop_state13_2024 ///
+                               prop_state27_2024 prop_state29_2024 prop_state32_2024 ///
+                               prop_state38_2024 prop_state45_2024 prop_state48_2024 ///
+                               prop_state51_2024)
+
+
+
+gen d_prop_northeast = prop_northeast_2024 - prop_northeast_2022
+gen d_prop_midwest = prop_midwest_2024 - prop_midwest_2022
+gen d_prop_south = prop_south_2024 - prop_south_2022
+gen d_prop_west = prop_west_2024 - prop_west_2022
+
+gen d_openai_4_1 = openai4 - openai1
+gen d_openai_4_2 = openai4 - openai2
+gen d_openai_3_1 = openai3 - openai1
+gen d_openai_3_2 = openai3 - openai2
+
+gen d_claude_4_1 = claude4 - claude1
+gen d_claude_4_2 = claude4 - claude2
+gen d_claude_3_1 = claude3 - claude1
+gen d_claude_3_2 = claude3 - claude2
+
+
+save "$data_root/Cleaned/3M_LD_Stageexp.dta", replace
+
+
+***************************************************** Stage 1 ******************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+
+
+
+* OpenAI Exposure, No Controls
+reg d_employed openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", replace
+reg d_unemp_rate openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrswork1 openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrsworkt openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_unemp_rate claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrswork1 claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrsworkt claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_unemp_rate openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrswork1 openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrsworkt openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_unemp_rate claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrswork1 claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+reg d_ahrsworkt claude1 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s1_v2'.tex", append
+
+***************************************************** Stage 2 ******************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", replace
+reg d_unemp_rate openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrswork1 openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrsworkt openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_unemp_rate claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrswork1 claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrsworkt claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_unemp_rate openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrswork1 openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrsworkt openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_unemp_rate claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrswork1 claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+reg d_ahrsworkt claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s2_v2'.tex", append
+
+************************************************ Stage 2 Residuals *************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+
+*** Step 1: Residualize Outcome Variables (y) ***
+foreach yvar in d_employed d_unemp_rate d_ahrswork1 d_ahrsworkt {
+    reg `yvar' prop_age_30to50_2022 prop_age_50plus_2022 ///
+        prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 ///
+        prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 ///
+        prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+
+    predict resid_`yvar', residuals
+}
+
+*** Step 2: Residualize Exposure Variables (X) ***
+foreach xvar in openai2 claude2 {
+    reg `xvar' prop_age_30to50_2022 prop_age_50plus_2022 ///
+        prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 ///
+        prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 ///
+        prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+
+    predict resid_`xvar', residuals
+}
+
+*** Step 3: Save dataset for use in Python ***
+save "$data_root/Cleaned/3M_LD_Stageexp_resid.dta", replace
+
+
+***************************************************** Stage 3 ******************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", replace
+reg d_unemp_rate openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrswork1 openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrsworkt openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_unemp_rate claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrswork1 claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrsworkt claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_unemp_rate openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrswork1 openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrsworkt openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_unemp_rate claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrswork1 claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+reg d_ahrsworkt claude3 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_s3_v2'.tex", append
+	
+********************************************************************************************************************
+********************************** Using 6 Month Periods, Stage Specific Exposure **********************************
+********************************************************************************************************************
+
+******************************* Creating 6-month average outcome vars. and controls ********************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta", clear
+* Keep only Aug 2022-Jan 2023 data
+keep if (year == 2022 & (month == 8 |month == 9 | month == 10 | month == 11 | month == 12)) | (year == 2023 & month == 1)
+
+* Collapse to occupation-level means
+collapse (mean) unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem, ///
+    by(cps_code)
+
+* Rename variables to specify they are from the base period
+foreach var of varlist unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem {
+    rename `var' `var'_2022
+}
+
+* Save the base period data
+save "$data_root/Working/2022_6_month.dta", replace
+	
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta", clear
+* Keep only Aug 2024-Jan 2025 data
+keep if (year == 2024 & (month == 8 |month == 9 | month == 10 | month == 11 | month == 12)) | (year == 2025 & month == 1)
+
+* Collapse to occupation-level means
+collapse (mean) unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem, ///
+    by(cps_code)
+
+* Rename variables to specify they are from the base period
+foreach var of varlist unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem {
+    rename `var' `var'_2024
+}
+
+save "$data_root/Working/2024_6_month.dta", replace
+
+merge 1:1 cps_code using "$data_root/Working/2022_6_month.dta"
+drop _merge
+
+* Compute Long-Difference Outcomes
+gen d_unemp_rate = unemp_rate_new_2024 - unemp_rate_new_2022
+gen d_employed = demployed_2024 - demployed_2022
+gen d_ahrswork1 = ahrswork1_2024 - ahrswork1_2022
+gen d_ahrsworkt = ahrsworkt_2024 - ahrsworkt_2022
+
+* Compute Regional Shares
+gen prop_northeast_2022 = prop_state7_2022 + prop_state20_2022 + prop_state22_2022 + ///
+                     prop_state30_2022 + prop_state31_2022 + prop_state33_2022 + ///
+                     prop_state39_2022 + prop_state40_2022 + prop_state46_2022
+
+gen prop_midwest_2022 = prop_state14_2022 + prop_state15_2022 + prop_state16_2022 + ///
+                   prop_state17_2022 + prop_state23_2022 + prop_state24_2022 + ///
+                   prop_state26_2022 + prop_state28_2022 + prop_state35_2022 + ///
+                   prop_state36_2022 + prop_state42_2022 + prop_state50_2022
+
+gen prop_south_2022 = prop_state1_2022 + prop_state4_2022 + prop_state8_2022 + ///
+                 prop_state9_2022 + prop_state10_2022 + prop_state11_2022 + ///
+                 prop_state18_2022 + prop_state19_2022 + prop_state21_2022 + ///
+                 prop_state25_2022 + prop_state34_2022 + prop_state37_2022 + ///
+                 prop_state41_2022 + prop_state43_2022 + prop_state44_2022 + ///
+                 prop_state47_2022 + prop_state49_2022
+
+gen prop_west_2022 = prop_state2_2022 + prop_state3_2022 + prop_state5_2022 + ///
+                prop_state6_2022 + prop_state12_2022 + prop_state13_2022 + ///
+                prop_state27_2022 + prop_state29_2022 + prop_state32_2022 + ///
+                prop_state38_2022 + prop_state45_2022 + prop_state48_2022 + ///
+                prop_state51_2022
+
+* Save dataset for final analysis
+save "$data_root/Working/6M_outcomes_controls_LD.dta", replace
+
+merge 1:m cps_code using "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta"
+drop if _merge == 2
+drop _merge
+
+save "$data_root/Cleaned/6M_LD_Stageexp.dta", replace
+
+***************************************************** Stage 1 ******************************************************
+use "$data_root/Cleaned/6M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", replace
+reg d_unemp_rate openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrswork1 openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrsworkt openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_unemp_rate claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrswork1 claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrsworkt claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_unemp_rate openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrswork1 openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrsworkt openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_unemp_rate claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrswork1 claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+reg d_ahrsworkt claude1 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s1_v2'.tex", append
+
+***************************************************** Stage 2 ******************************************************
+use "$data_root/Cleaned/6M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", replace
+reg d_unemp_rate openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrswork1 openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrsworkt openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_unemp_rate claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrswork1 claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrsworkt claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_unemp_rate openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrswork1 openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrsworkt openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_unemp_rate claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrswork1 claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+reg d_ahrsworkt claude2 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s2_v2'.tex", append
+
+***************************************************** Stage 3 ******************************************************
+use "$data_root/Cleaned/6M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", replace
+reg d_unemp_rate openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrswork1 openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrsworkt openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_unemp_rate claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrswork1 claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrsworkt claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_unemp_rate openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrswork1 openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrsworkt openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_unemp_rate claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrswork1 claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+reg d_ahrsworkt claude3 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/6M_ld_s3_v2'.tex", append
+
+********************************************************************************************************************
+*********************************** Using Yearly Periods, Stage Specific Exposure **********************************
+********************************************************************************************************************
+
+******************************** Creating yearly average outcome vars. and controls ********************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta", clear
+* Keep only Feb 2022-Jan 2023 data
+keep if (year == 2022 & month >= 2) | (year == 2023 & month == 1)
+
+* Collapse to occupation-level means
+collapse (mean) unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem, ///
+    by(cps_code)
+
+* Rename variables to specify they are from the base period
+foreach var of varlist unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem {
+    rename `var' `var'_2022
+}
+
+* Save the base period data
+save "$data_root/Working/2022_12_month.dta", replace
+	
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta", clear
+* Keep only Feb 2024-Jan 2025 data
+keep if (year == 2024 & month >= 2) | (year == 2025 & month == 1)
+
+* Collapse to occupation-level means
+collapse (mean) unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem, ///
+    by(cps_code)
+
+* Rename variables to specify they are from the base period
+foreach var of varlist unemp_rate_new demployed ahrswork1 ahrsworkt ///
+    prop_age_* prop_white prop_black prop_asian prop_native ///
+    prop_pacific prop_mixed_other prop_educ_* prop_state* prop_fem {
+    rename `var' `var'_2024
+}
+
+save "$data_root/Working/2024_12_month.dta", replace
+
+merge 1:1 cps_code using "$data_root/Working/2022_12_month.dta"
+drop _merge
+
+* Compute Long-Difference Outcomes
+gen d_unemp_rate = unemp_rate_new_2024 - unemp_rate_new_2022
+gen d_employed = demployed_2024 - demployed_2022
+gen d_ahrswork1 = ahrswork1_2024 - ahrswork1_2022
+gen d_ahrsworkt = ahrsworkt_2024 - ahrsworkt_2022
+
+* Compute Regional Shares
+gen prop_northeast_2022 = prop_state7_2022 + prop_state20_2022 + prop_state22_2022 + ///
+                     prop_state30_2022 + prop_state31_2022 + prop_state33_2022 + ///
+                     prop_state39_2022 + prop_state40_2022 + prop_state46_2022
+
+gen prop_midwest_2022 = prop_state14_2022 + prop_state15_2022 + prop_state16_2022 + ///
+                   prop_state17_2022 + prop_state23_2022 + prop_state24_2022 + ///
+                   prop_state26_2022 + prop_state28_2022 + prop_state35_2022 + ///
+                   prop_state36_2022 + prop_state42_2022 + prop_state50_2022
+
+gen prop_south_2022 = prop_state1_2022 + prop_state4_2022 + prop_state8_2022 + ///
+                 prop_state9_2022 + prop_state10_2022 + prop_state11_2022 + ///
+                 prop_state18_2022 + prop_state19_2022 + prop_state21_2022 + ///
+                 prop_state25_2022 + prop_state34_2022 + prop_state37_2022 + ///
+                 prop_state41_2022 + prop_state43_2022 + prop_state44_2022 + ///
+                 prop_state47_2022 + prop_state49_2022
+
+gen prop_west_2022 = prop_state2_2022 + prop_state3_2022 + prop_state5_2022 + ///
+                prop_state6_2022 + prop_state12_2022 + prop_state13_2022 + ///
+                prop_state27_2022 + prop_state29_2022 + prop_state32_2022 + ///
+                prop_state38_2022 + prop_state45_2022 + prop_state48_2022 + ///
+                prop_state51_2022
+
+* Save dataset for final analysis
+save "$data_root/Working/12M_outcomes_controls_LD.dta", replace
+
+merge 1:m cps_code using "$data_root/Cleaned/cps_by_occupation_for_analysis_v5.dta"
+drop _merge
+
+save "$data_root/Cleaned/12M_LD_Stageexp.dta", replace
+
+***************************************************** Stage 1 ******************************************************
+use "$data_root/Cleaned/12M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", replace
+reg d_unemp_rate openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrswork1 openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrsworkt openai1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_unemp_rate claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrswork1 claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrsworkt claude1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_unemp_rate openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrswork1 openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrsworkt openai1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_unemp_rate claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrswork1 claude1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+reg d_ahrsworkt claude1 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s1_v2'.tex", append
+
+***************************************************** Stage 2 ******************************************************
+use "$data_root/Cleaned/12M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", replace
+reg d_unemp_rate openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrswork1 openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrsworkt openai2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_unemp_rate claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrswork1 claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrsworkt claude2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_unemp_rate openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrswork1 openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrsworkt openai2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_unemp_rate claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrswork1 claude2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+reg d_ahrsworkt claude2 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s2_v2'.tex", append
+
+***************************************************** Stage 3 ******************************************************
+use "$data_root/Cleaned/12M_LD_Stageexp.dta", clear
+
+* OpenAI Exposure, No Controls
+reg d_employed openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", replace
+reg d_unemp_rate openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrswork1 openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrsworkt openai3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+
+* Claude Exposure, No Controls
+reg d_employed claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_unemp_rate claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrswork1 claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrsworkt claude3, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+
+
+* OpenAI Exposure, With Controls
+reg d_employed openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_unemp_rate openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrswork1 openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrsworkt openai3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_unemp_rate claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrswork1 claude3 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+reg d_ahrsworkt claude3 prop_age_30to50_2022 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 prop_educ_q1 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 prop_northeast_2022 prop_west_2022 prop_fem_2022, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/12M_ld_s3_v2'.tex", append
+
+********************************************************************************************************************
+***************************** Using 3 Month Periods, Difference Between Stage Exposure *****************************
+********************************************************************************************************************
+
+************************************************ Stage 4 - Stage 1 *************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+* OpenAI Exposure, No Controls
+reg d_employed d_openai_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", replace
+reg d_unemp_rate d_openai_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrswork1 d_openai_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrsworkt d_openai_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed d_claude_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_unemp_rate d_claude_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrswork1 d_claude_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrsworkt d_claude_4_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+	
+* OpenAI Exposure, With Controls
+reg d_employed d_openai_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_unemp_rate d_openai_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrswork1 d_openai_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrsworkt d_openai_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed d_claude_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_unemp_rate d_claude_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrswork1 d_claude_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+reg d_ahrsworkt d_claude_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_1'.tex", append
+
+************************************************ Stage 4 - Stage 2 *************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+* OpenAI Exposure, No Controls
+reg d_employed d_openai_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", replace
+reg d_unemp_rate d_openai_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrswork1 d_openai_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrsworkt d_openai_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed d_claude_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_unemp_rate d_claude_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrswork1 d_claude_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrsworkt d_claude_4_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+	
+* OpenAI Exposure, With Controls
+reg d_employed d_openai_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_unemp_rate d_openai_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrswork1 d_openai_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrsworkt d_openai_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed d_claude_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_unemp_rate d_claude_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrswork1 d_claude_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+reg d_ahrsworkt d_claude_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_4_2'.tex", append
+
+************************************************ Stage 3 - Stage 1 *************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+* OpenAI Exposure, No Controls
+reg d_employed d_openai_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", replace
+reg d_unemp_rate d_openai_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrswork1 d_openai_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrsworkt d_openai_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed d_claude_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_unemp_rate d_claude_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrswork1 d_claude_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrsworkt d_claude_3_1, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+	
+* OpenAI Exposure, With Controls
+reg d_employed d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_unemp_rate d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrswork1 d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrsworkt d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_unemp_rate d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrswork1 d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+reg d_ahrsworkt d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_1'.tex", append
+
+************************************************ Stage 3 - Stage 2 *************************************************
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+* OpenAI Exposure, No Controls
+reg d_employed d_openai_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", replace
+reg d_unemp_rate d_openai_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrswork1 d_openai_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrsworkt d_openai_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+	
+* Claude Exposure, No Controls
+reg d_employed d_claude_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_unemp_rate d_claude_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrswork1 d_claude_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrsworkt d_claude_3_2, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+	
+* OpenAI Exposure, With Controls
+reg d_employed d_openai_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_unemp_rate d_openai_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrswork1 d_openai_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrsworkt d_openai_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+
+* Claude Exposure, With Controls
+reg d_employed d_claude_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+               d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+               d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_unemp_rate d_claude_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                 d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                 d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrswork1 d_claude_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+reg d_ahrsworkt d_claude_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black d_prop_asian d_prop_native ///
+                d_prop_mixed_other d_prop_pacific d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 ///
+                d_prop_midwest d_prop_northeast d_prop_west d_prop_fem, vce(robust)
+	outreg2 using "$export_root/march/FE/TEX/3_20/3M_ld_diff_3_2'.tex", append
+
+
+*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+********************************************************************************************************************
+***************************************************** Scatters *****************************************************
+********************************************************************************************************************
+*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+
+
+* Employment vs. OpenAI Exposure (Stage 2)
+twoway (scatter d_employed openai2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_employed openai2, lcolor(red)), ///
+       title("Effect of OpenAI Exposure (Stage 2) on Employment") ///
+       xtitle("OpenAI Exposure (Stage 2)") ///
+       ytitle("Change In Employment (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_openai2_employment.png", replace
+  
+* Unemployment Rate vs. OpenAI Exposure (Stage 2)
+twoway (scatter d_unemp_rate openai2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_unemp_rate openai2, lcolor(red)), ///
+       title("Effect of OpenAI Exposure (Stage 2) on Unemployment Rate") ///
+       xtitle("OpenAI Exposure (Stage 2)") ///
+       ytitle("Change in Unemployment Rate (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_openai2_unemp_rate.png", replace
+
+* Hours Worked (Main Job) vs. OpenAI Exposure (Stage 2)
+twoway (scatter d_ahrswork1 openai2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrswork1 openai2, lcolor(red)), ///
+       title("Effect of OpenAI Exposure (Stage 2) on Hours Worked (Main Job)") ///
+       xtitle("OpenAI Exposure (Stage 2)") ///
+       ytitle("Change in Hours Worked - Main Job (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_openai2_hours_main.png", replace
+
+* Hours Worked (Total) vs. OpenAI Exposure (Stage 2)
+twoway (scatter d_ahrsworkt openai2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrsworkt openai2, lcolor(red)), ///
+       title("Effect of OpenAI Exposure (Stage 2) on Hours Worked (Total)") ///
+       xtitle("OpenAI Exposure (Stage 2)") ///
+       ytitle("Change in Hours Worked - Total (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_openai2_hours_total.png", replace
+
+
+* Employment vs. Claude Exposure (Stage 2)
+twoway (scatter d_employed claude2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_employed claude2, lcolor(red)), ///
+       title("Effect of Claude Exposure (Stage 2) on Employment") ///
+       xtitle("Claude Exposure (Stage 2)") ///
+       ytitle("Change In Employment (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_claude2_employment.png", replace
+
+* Unemployment Rate vs. Claude Exposure (Stage 2)
+twoway (scatter d_unemp_rate claude2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_unemp_rate claude2, lcolor(red)), ///
+       title("Effect of Claude Exposure (Stage 2) on Unemployment Rate") ///
+       xtitle("Claude Exposure (Stage 2)") ///
+       ytitle("Change in Unemployment Rate (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_claude2_unemp_rate.png", replace
+
+* Hours Worked (Main Job) vs. Claude Exposure (Stage 2)
+twoway (scatter d_ahrswork1 claude2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrswork1 claude2, lcolor(red)), ///
+       title("Effect of Claude Exposure (Stage 2) on Hours Worked (Main Job)") ///
+       xtitle("Claude Exposure (Stage 2)") ///
+       ytitle("Change in Hours Worked - Main Job (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_claude2_hours_main.png", replace
+
+* Hours Worked (Total) vs. Claude Exposure (Stage 2)
+twoway (scatter d_ahrsworkt claude2, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrsworkt claude2, lcolor(red)), ///
+       title("Effect of Claude Exposure (Stage 2) on Hours Worked (Total)") ///
+       xtitle("Claude Exposure (Stage 2)") ///
+       ytitle("Change in Hours Worked - Total (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_claude2_hours_total.png", replace
+
+
+use "$data_root/Cleaned/3M_LD_Stageexp.dta", clear
+
+* Employment vs. Change in OpenAI Exposure (Stage 3 - Stage 1)
+twoway (scatter d_employed d_openai_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_employed d_openai_3_1, lcolor(red)), ///
+       title("Effect of Change in OpenAI Exposure (Stage 3 - Stage 1) on Employment", size(medium)) ///
+       xtitle("Change in OpenAI Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Employment (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_openai3_1_employment.png", replace
+
+* Unemployment Rate vs. Change in OpenAI Exposure (Stage 3 - Stage 1)
+twoway (scatter d_unemp_rate d_openai_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_unemp_rate d_openai_3_1, lcolor(red)), ///
+       title("Effect of Change in OpenAI Exposure (Stage 3 - Stage 1) on Unemployment Rate", size(medium)) ///
+       xtitle("Change in OpenAI Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Unemployment Rate (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_openai3_1_unemp_rate.png", replace
+
+* Hours Worked (Main Job) vs. Change in OpenAI Exposure (Stage 3 - Stage 1)
+twoway (scatter d_ahrswork1 d_openai_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrswork1 d_openai_3_1, lcolor(red)), ///
+       title("Effect of Change in OpenAI Exposure (Stage 3 - Stage 1) on Hours Worked (Main Job)", size(medium)) ///
+       xtitle("Change in OpenAI Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Hours Worked - Main Job (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_openai3_1_hours_main.png", replace
+
+* Hours Worked (Total) vs. Change in OpenAI Exposure (Stage 3 - Stage 1)
+twoway (scatter d_ahrsworkt d_openai_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrsworkt d_openai_3_1, lcolor(red)), ///
+       title("Effect of Change in OpenAI Exposure (Stage 3 - Stage 1) on Hours Worked (Total)", size(medium)) ///
+       xtitle("Change in OpenAI Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Hours Worked - Total (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_openai3_1_hours_total.png", replace
+
+
+* Employment vs. Change in Claude Exposure (Stage 3 - Stage 1)
+twoway (scatter d_employed d_claude_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_employed d_claude_3_1, lcolor(red)), ///
+       title("Effect of Change in Claude Exposure (Stage 3 - Stage 1) on Employment", size(medium)) ///
+       xtitle("Change in Claude Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Employment (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_claude3_1_employment.png", replace
+
+* Unemployment Rate vs. Change in Claude Exposure (Stage 3 - Stage 1)
+twoway (scatter d_unemp_rate d_claude_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_unemp_rate d_claude_3_1, lcolor(red)), ///
+       title("Effect of Change in Claude Exposure (Stage 3 - Stage 1) on Unemployment Rate", size(medium)) ///
+       xtitle("Change in Claude Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Unemployment Rate (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_claude3_1_unemp_rate.png", replace
+
+* Hours Worked (Main Job) vs. Change in Claude Exposure (Stage 3 - Stage 1)
+twoway (scatter d_ahrswork1 d_claude_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrswork1 d_claude_3_1, lcolor(red)), ///
+       title("Effect of Change in Claude Exposure (Stage 3 - Stage 1) on Hours Worked (Main Job)", size(medium)) ///
+       xtitle("Change in Claude Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Hours Worked - Main Job (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_claude3_1_hours_main.png", replace
+
+* Hours Worked (Total) vs. Change in Claude Exposure (Stage 3 - Stage 1)
+twoway (scatter d_ahrsworkt d_claude_3_1, msize(vsmall) mfcolor(blue) mlcolor(blue)) ///
+       (lfit d_ahrsworkt d_claude_3_1, lcolor(red)), ///
+       title("Effect of Change in Claude Exposure (Stage 3 - Stage 1) on Hours Worked (Total)", size(medium)) ///
+       xtitle("Change in Claude Exposure (Stage 3 - Stage 1)") ///
+       ytitle("Change in Hours Worked - Total (Sep-Nov 2022 to Sep-Nov 2024)", size(small)) ///
+       legend(order(1 "Observations" 2 "Line of Best Fit") position(7) ring(0))
+graph export "$export_root/march/FE/Plots/3M_LD_diff_claude3_1_hours_total.png", replace
+
+	*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+********************************************************************************************************************
+******************************************************* DiD ********************************************************
+********************************************************************************************************************
+*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+	
+
+	
+	
+	
+	
+	
+	
+	
+*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+********************************************************************************************************************
+***************************************************** Outdated *****************************************************
+********************************************************************************************************************
+*-----------------------------------------------------------------------------------------------------------------*	
+*-----------------------------------------------------------------------------------------------------------------*	
+
+***************************************** Stage 1 (No controls or Weights) *****************************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+reg diff_emp openai1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", replace
+reg diff_unemp_rate openai1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", append
+reg diff_hrswork1 openai1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", append
+reg diff_hrsworkt openai1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", append
+
+	reg diff_emp claude1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", append
+reg diff_unemp_rate claude1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", append
+reg diff_hrswork1 claude1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", append
+reg diff_hrsworkt claude1 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s1_v1'.tex", append
+	
+
+***************************************** Stage 2 (No controls or Weights) *****************************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+reg diff_emp openai2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", replace
+reg diff_unemp_rate openai2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", append
+reg diff_hrswork1 openai2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", append
+reg diff_hrsworkt openai2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", append
+
+	reg diff_emp claude2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", append
+reg diff_unemp_rate claude2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", append
+reg diff_hrswork1 claude2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", append
+reg diff_hrsworkt claude2 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s2_v1'.tex", append
+	
+***************************************** Stage 3 (No controls or Weights) *****************************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+reg diff_emp openai3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", replace
+reg diff_unemp_rate openai3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", append
+reg diff_hrswork1 openai3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", append
+reg diff_hrsworkt openai3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", append
+
+	reg diff_emp claude3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", append
+reg diff_unemp_rate claude3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", append
+reg diff_hrswork1 claude3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", append
+reg diff_hrsworkt claude3 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s3_v1'.tex", append
+	
+***************************************** Stage 4 (No controls or Weights) *****************************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+reg diff_emp openai4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", replace
+reg diff_unemp_rate openai4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", append
+reg diff_hrswork1 openai4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", append
+reg diff_hrsworkt openai4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", append
+
+	reg diff_emp claude4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", append
+reg diff_unemp_rate claude4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", append
+reg diff_hrswork1 claude4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", append
+reg diff_hrsworkt claude4 ntime, vce(robust)
+    outreg2 using "$export_root/march/FE/TEX/longdiff/ld_s4_v1'.tex", append
+
+
+********************************** Dynamic Exposure and Outcomes (Month by month) **********************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+sort cps_code year month
+
+
+gen d_unemp_rate = unemp_rate_new - unemp_rate_new[_n-1] if cps_code == cps_code[_n-1]
+gen d_emp = demployed - demployed[_n-1] if cps_code == cps_code[_n-1]
+gen d_hrswork1 = ahrswork1 - ahrswork1[_n-1] if cps_code == cps_code[_n-1]
+gen d_hrsworkt = ahrsworkt - ahrsworkt[_n-1] if cps_code == cps_code[_n-1]
+
+gen d_chatgptexp = chatgptexp - chatgptexp[_n-1] if cps_code == cps_code[_n-1]
+gen d_claudeexp = claudeexp - claudeexp[_n-1] if cps_code == cps_code[_n-1]
+
+reg d_emp d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", replace
+
+reg d_unemp_rate d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", append
+
+reg d_hrswork1 d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", append
+
+reg d_hrsworkt d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", append
+
+reg d_emp d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", append
+
+reg d_unemp_rate d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", append
+
+reg d_hrswork1 d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", append
+
+reg d_hrsworkt d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/firstdiff_v1.tex", append
+
+******************************* Dynamic Exposure and Outcomes (January Year by Year) *******************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+keep if month == 1  // Keep only January observations
+sort cps_code year
+gen d_unemp_rate = unemp_rate_new - unemp_rate_new[_n-1] if cps_code == cps_code[_n-1]
+gen d_emp = demployed - demployed[_n-1] if cps_code == cps_code[_n-1]
+gen d_hrswork1 = ahrswork1 - ahrswork1[_n-1] if cps_code == cps_code[_n-1]
+gen d_hrsworkt = ahrsworkt - ahrsworkt[_n-1] if cps_code == cps_code[_n-1]
+
+gen d_chatgptexp = chatgptexp - chatgptexp[_n-1] if cps_code == cps_code[_n-1]
+gen d_claudeexp = claudeexp - claudeexp[_n-1] if cps_code == cps_code[_n-1]
+
+* ChatGPT Exposure - Yearly Differences
+reg d_emp d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", replace
+
+reg d_unemp_rate d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", append
+
+reg d_hrswork1 d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", append
+
+reg d_hrsworkt d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", append
+
+* Claude Exposure - Yearly Differences
+reg d_emp d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", append
+
+reg d_unemp_rate d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", append
+
+reg d_hrswork1 d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", append
+
+reg d_hrsworkt d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v1.tex", append
+
+****************************** Dynamic Exposure and Outcomes (Aggregate Year by Year) ******************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+
+collapse (mean) demployed unemp_rate_new ahrswork1 ahrsworkt chatgptexp claudeexp, by(year cps_code)
+
+sort cps_code year
+
+gen d_emp = demployed - demployed[_n-1] if cps_code == cps_code[_n-1]
+gen d_unemp_rate = unemp_rate_new - unemp_rate_new[_n-1] if cps_code == cps_code[_n-1]
+gen d_hrswork1 = ahrswork1 - ahrswork1[_n-1] if cps_code == cps_code[_n-1]
+gen d_hrsworkt = ahrsworkt - ahrsworkt[_n-1] if cps_code == cps_code[_n-1]
+
+gen d_chatgptexp = chatgptexp - chatgptexp[_n-1] if cps_code == cps_code[_n-1]
+gen d_claudeexp = claudeexp - claudeexp[_n-1] if cps_code == cps_code[_n-1]
+
+reg d_emp d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", replace
+
+reg d_unemp_rate d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", append
+
+reg d_hrswork1 d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", append
+
+reg d_hrsworkt d_chatgptexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", append
+
+reg d_emp d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", append
+
+reg d_unemp_rate d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", append
+
+reg d_hrswork1 d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", append
+
+reg d_hrsworkt d_claudeexp, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yeardiff_v2.tex", append
+
+************************* Dynamic Exposure and Outcomes (Consecutive Months, Year by Year) *************************
+use "$data_root/Cleaned/cps_by_occupation_for_analysis_v4.dta", replace
+sort cps_code year month
+
+gen d_unemp_rate_yoy = unemp_rate_new - unemp_rate_new[_n-12] if cps_code == cps_code[_n-12]
+gen d_emp_yoy = demployed - demployed[_n-12] if cps_code == cps_code[_n-12]
+gen d_hrswork1_yoy = ahrswork1 - ahrswork1[_n-12] if cps_code == cps_code[_n-12]
+gen d_hrsworkt_yoy = ahrsworkt - ahrsworkt[_n-12] if cps_code == cps_code[_n-12]
+
+
+gen d_chatgptexp_yoy = chatgptexp - chatgptexp[_n-12] if cps_code == cps_code[_n-12]
+gen d_claudeexp_yoy = claudeexp - claudeexp[_n-12] if cps_code == cps_code[_n-12]
+
+reg d_emp_yoy d_chatgptexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", replace
+
+reg d_unemp_rate_yoy d_chatgptexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", append
+
+reg d_hrswork1_yoy d_chatgptexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", append
+
+reg d_hrsworkt_yoy d_chatgptexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", append
+
+reg d_emp_yoy d_claudeexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", append
+
+reg d_unemp_rate_yoy d_claudeexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", append
+
+reg d_hrswork1_yoy d_claudeexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", append
+
+reg d_hrsworkt_yoy d_claudeexp_yoy, vce(robust)
+outreg2 using "$export_root/march/FE/TEX/yoy_diff_v1.tex", append
+
+*****************************************************	
+* Heterogeneity - OpenAI
+
+/* Unemployed */
+*********** Heterogeneity by education 
+* Less than HS
+reghdfe Dunemp chatgptexp if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('HSless') replace
+* BA or more
+reghdfe Dunemp chatgptexp if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('BAmore')
+* More than a BA
+reghdfe Dunemp chatgptexp if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('morethanBA')	
+*********** Heterogeneity by agegroup
+* 30 or less
+reghdfe Dunemp chatgptexp if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('30orless')
+* 31 to 50
+reghdfe Dunemp chatgptexp if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('31to50')
+* More than 50
+reghdfe Dunemp chatgptexp if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('morethan50')	
+*********** Heterogeneity by sex
+* Male 
+reghdfe Dunemp chatgptexp if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('male')
+* Female
+reghdfe Dunemp chatgptexp if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('female')
+
+	
+/* With individual controls */	
+* edu
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('HSless') 
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('BAmore')
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('morethanBA')	
+* age	
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('30orless') 
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('31to50')
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('morethan50')	
+
+* Male 
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('male')
+* Female
+reghdfe Dunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feunemp_hetero.xls, ctitle('female')
+	
+
+	
+	
+
+	
+/* Work hours */
+*********** Heterogeneity by education 
+* Less than HS
+reghdfe ahrswork1 chatgptexp if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('HSless') replace
+* BA or more
+reghdfe ahrswork1 chatgptexp if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('BAmore')
+* More than a BA
+reghdfe ahrswork1 chatgptexp if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('morethanBA')	
+*********** Heterogeneity by agegroup
+* 30 or less
+reghdfe ahrswork1 chatgptexp if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('30orless')
+* 31 to 50
+reghdfe ahrswork1 chatgptexp if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('31to50')
+* More than 50
+reghdfe ahrswork1 chatgptexp if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('morethan50')	
+*********** Heterogeneity by sex
+* Male 
+reghdfe ahrswork1 chatgptexp if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('male')
+* Female
+reghdfe ahrswork1 chatgptexp if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('female')
+
+	
+/* With individual controls */	
+* edu
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('HSless') 
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('BAmore')
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('morethanBA')	
+* age	
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('30orless') 
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('31to50')
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('morethan50')	
+
+* Male 
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('male')
+* Female
+reghdfe ahrswork1 chatgptexp Dfem i.agegroup i.educ i.race i.state if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/feahrswork1_hetero.xls, ctitle('female')
+	
+
+	
+	
+	
+/* Duration Unemployed */
+*********** Heterogeneity by education 
+* Less than HS
+reghdfe durunemp chatgptexp if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('HSless') replace
+* BA or more
+reghdfe durunemp chatgptexp if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('BAmore')
+* More than a BA
+reghdfe durunemp chatgptexp if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('morethanBA')	
+*********** Heterogeneity by agegroup
+* 30 or less
+reghdfe durunemp chatgptexp if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('30orless')
+* 31 to 50
+reghdfe durunemp chatgptexp if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('31to50')
+* More than 50
+reghdfe durunemp chatgptexp if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('morethan50')	
+*********** Heterogeneity by sex
+* Male 
+reghdfe durunemp chatgptexp if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('male')
+* Female
+reghdfe durunemp chatgptexp if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('female')
+
+	
+/* With individual controls */	
+* edu
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('HSless') 
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('BAmore')
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('morethanBA')	
+* age	
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('30orless') 
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('31to50')
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('morethan50')	
+
+* Male 
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('male')
+* Female
+reghdfe durunemp chatgptexp Dfem i.agegroup i.educ i.race i.state if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/fedurunemp_hetero.xls, ctitle('female')
+	
+
+
+	
+
+
+
+
+
+
+	
+	
+***************************	
+	
+	
+* Cluster FEs?
+reghdfe Dunemp chatgptexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+reghdfe ahrswork1 chatgptexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls	
+*reghdfe ahrswork2 chatgptexp, absorb(cps_code time) vce(cluster cps_code)
+*	outreg2 using Tables/feresults.xls
+reghdfe ahrsworkt chatgptexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+reghdfe durunemp chatgptexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+reghdfe Fulltime chatgptexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+
+	
+reghdfe Dunemp claudeexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+reghdfe ahrswork1 claudeexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+*reghdfe ahrswork2 claudeexp, absorb(cps_code time) vce(cluster cps_code)
+*	outreg2 using Tables/feresults.xls	
+reghdfe ahrsworkt claudeexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+reghdfe durunemp claudeexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls
+reghdfe Fulltime claudeexp, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using Tables/feresults.xls	
+	
+	
+****************************************************************************************************
+
+
+* DiffinDiff 
+	
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls, replace
+reghdfe ahrswork1 Post DQ4_openai1 PostxDQ4_openai1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls	
+reghdfe ahrswork1 Post DQ4_openai3 PostxDQ4_openai3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls	
+	
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 Dfem i.agegroup i.educ i.race i.state , absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 Dfem i.agegroup i.educ i.race i.state, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls	
+reghdfe ahrswork1 Post DQ4_openai1 PostxDQ4_openai1 Dfem i.agegroup i.educ i.race i.state , absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls
+reghdfe ahrswork1 Post DQ4_openai3 PostxDQ4_openai3 Dfem i.agegroup i.educ i.race i.state, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults.xls	
+	
+	
+	
+
+/* Unemployed */
+*********** Heterogeneity by education 
+* Less than HS
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('HSless') replace
+* BA or more
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('BAmore')
+* More than a BA
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('morethanBA')	
+*********** Heterogeneity by agegroup
+* 30 or less
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('30orless')
+* 31 to 50
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('31to50')
+* More than 50
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('morethan50')	
+*********** Heterogeneity by sex
+* Male 
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('male')
+* Female
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1 if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('female')
+
+
+*********** Heterogeneity by education 
+* Less than HS
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if educ<=73, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('HSless') 
+* BA or more
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if educ>=111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('BAmore')
+* More than a BA
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if educ>111, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('morethanBA')	
+*********** Heterogeneity by agegroup
+* 30 or less
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if agegroup==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('30orless')
+* 31 to 50
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if agegroup==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('31to50')
+* More than 50
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if agegroup==3, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('morethan50')	
+*********** Heterogeneity by sex
+* Male 
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if sex==1, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('male')
+* Female
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3 if sex==2, absorb(cps_code time) vce(rob)
+	outreg2 using Tables/ddresults_hetero.xls, ctitle('female')
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+****************************************************************************************************
+
+* Diff in Diff estimate
+
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1, absorb(cps_code time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using ddresults_unemp.xls
+	
+	
+	
+	
+
+
+
+
+
+reghdfe Dunemp Post openai1 Postxopenai1, absorb(cps_code time) vce(rob)
+	outreg2 using ddresults_unemp.xls, replace
+	
+	
+	
+	
+reghdfe Dunemp Post openai1 Postxopenai1, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using ddresults_unemp.xls
+	
+reghdfe Dunemp Post Dhi_GenAI_perw PostxDhi_GenAI_perw, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post Dhi_GenAI_perw PostxDhi_GenAI_perw, absorb(census_occ time)vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls
+	
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1, absorb(cps_code time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_openai1 PostxDQ4_openai1, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using ddresults_unemp.xls
+	
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3, absorb(cps_code time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_openai3 PostxDQ4_openai3, absorb(cps_code time) vce(cluster cps_code)
+	outreg2 using ddresults_unemp.xls
+	
+	
+	
+*********** Heterogeneity by education 
+* Less than HS
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<73, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<73, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+* Highschool or less
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<=73, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<=73, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+* More than highschool
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>73, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>73, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+* Bachelor's degree or more
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>=111, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>=111, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')	
+* More than Bachelor's degree
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>111, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>111, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('edu')	
+	
+************* Heterogeneity by gender
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('male')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('male')
+	
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==2, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('female')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==2, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('female')	
+	
+
+************* Heterogeneity by age
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('age')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('age')
+	
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==2, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('age')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==2, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('age')
+
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==3, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==3, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('age')
+	
+	
+************* Heterogeneity by race
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==100, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('race')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==100, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('race')
+* not white	
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race!=100, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('race')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race!=100, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('race')	
+* black	
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==200, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('race')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==200, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('race')		
+	
+************* Heterogeneity by workstatus
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('fulltime')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('fulltime')
+	
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==0, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('parttime')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==0, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('parttime')	
+
+************* Heterogeneity by region 
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('regionwest')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('regionwest')
+
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==0, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==0, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls
+	
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls, ctitle('regioncoast')
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls, ctitle('regioncoast')	
+		
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==0, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==0, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls	
+	
+************* control for gender 
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls
+************* control for gender and education
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls
+************* control for gender and education and race
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ i.race, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls
+************* control for gender and education and race and region
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ i.race i.region, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls		
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ i.race i.region, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls		
+	
+	
+************* control for gender and education and race and region
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_unemp.xls		
+reghdfe Dunemp Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_unemp.xls		
+	
+	
+	
+	
+************************************************
+* Hours worked
+************************************************
+
+* Diff in Diff estimate
+reghdfe ahrswork1 Post GenAI_perw PostxGenAI_perw, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, replace
+reghdfe ahrswork1 Post GenAI_perw PostxGenAI_perw, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls
+	
+reghdfe ahrswork1 Post Dhi_GenAI_perw PostxDhi_GenAI_perw, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls
+reghdfe ahrswork1 Post Dhi_GenAI_perw PostxDhi_GenAI_perw, absorb(census_occ time)vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls
+	
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls
+	
+	
+*********** Heterogeneity by education 
+* Less than HS
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<73, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<73, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+* Highschool or less
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<=73, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ<=73, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+* More than highschool
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>73, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>73, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+* Bachelor's degree or more
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>=111, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>=111, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')	
+* More than Bachelor's degree
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>111, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if educ>111, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('edu')	
+	
+************* Heterogeneity by gender (col 19 20 21 22)
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('male')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('male')
+	
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==2, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('female')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if sex==2, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('female')
+	
+
+************* Heterogeneity by age (col 23 24 25 26 27 28)
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('age')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('age')
+	
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==2, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('age')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==2, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('age')	
+
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==3, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('age')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if agegroup==3, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('age')
+	
+	
+************* Heterogeneity by race (col 29 30 31 32 33 34 )
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==100, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('race')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==100, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('race')
+* not white	
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race!=100, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('race')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race!=100, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('race')	
+* black	
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==200, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('race')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if race==200, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('race')		
+	
+************* Heterogeneity by workstatus (35 35 37 38)
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('fulltime')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('fulltime')
+	
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==0, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('parttime')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Fulltime==0, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('parttime')	
+	
+	
+************* Heterogeneity by region 
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('regionwest')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('regionwest')
+
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==0, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('region')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dwestcoast==0, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('region')
+	
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==1, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('regioncoast')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==1, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('regioncoast')	
+		
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==0, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls, ctitle('region')
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region if Dcoastal==0, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls, ctitle('region')
+	
+************* control for gender 
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls
+************* control for gender and education
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls
+************* control for gender and education and race
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ i.race, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls
+************* control for gender and education and race and region
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ i.race i.region, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls		
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.educ i.race i.region, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls		
+	
+	
+************* control for gender and education and race and region
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region, absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_hrswork.xls		
+reghdfe ahrswork1 Post DQ4_GenAI_perw PostxDQ4_GenAI_perw Dfem i.agegroup i.educ i.race i.region, absorb(census_occ time) vce(cluster census_occ)
+	outreg2 using ddresults_hrswork.xls		
+	
+	
+	
+
+	
+*************************************************
+* Figures: Dynamic treatment effects
+*************************************************
+	
+* Using median
+eventdd Dunemp, hdfe absorb(i.census_occ i.yrmonth) timevar(ntimexDhi_GenAI_perw) ci(rcap) graph_op(ytitle("Unemployed")) 
+
+* Using top quartile
+eventdd Dunemp agegroup Dfem i.race i.educ i.region, hdfe absorb(i.census_occ i.yrmonth) timevar(ntimexDQ4_GenAI_perw) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_all_controls.png", replace
+
+eventdd Dunemp, hdfe absorb(i.census_occ i.yrmonth) timevar(ntimexDQ4_GenAI_perw) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_all.png", replace
+
+eventdd durunemp, hdfe absorb(i.census_occ i.year) timevar(ntimexDQ4_GenAI_perw) ci(rcap) graph_op(ytitle("Duration unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/durunemp_all.png", replace
+	
+eventdd ahrswork1, hdfe absorb(i.census_occ i.year) timevar(ntimexDQ4_GenAI_perw) ci(rcap) graph_op(ytitle("Hours worked") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/ahrswork_all.png", replace
+	
+eventdd Diffworkact, hdfe absorb(i.census_occ i.year) timevar(ntimexDQ4_GenAI_perw) ci(rcap) graph_op(ytitle("Different task") xtitle("Month since ChatGPT (Dec. 2022=0)")) 	
+graph export "graphs/Diffworkact_all.png", replace
+
+eventdd Fulltime, hdfe absorb(i.census_occ i.year) timevar(ntimexDQ4_GenAI_perw) ci(rcap) graph_op(ytitle("Full time") xtitle("Month since ChatGPT (Dec. 2022=0)")) 	
+graph export "graphs/Fulltime_all.png", replace	
+	
+* LLM
+eventdd Dunemp, hdfe absorb(i.census_occ i.year) timevar(ntimexDhi_LLM_perw) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_all_LLMDhi.png", replace	
+
+eventdd Dunemp, hdfe absorb(i.census_occ i.year) timevar(ntimexDQ4_LLM_perw) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_all_LLMDQ4.png", replace	
+	
+	
+** Sum up economy wide not very strong evidence of a change *
+
+****************************************************************************************************
+* Let's examine specific occupations in industries
+
+********************************************************************
+/* Within Computer Occupations */
+********************************************************************
+/*
+1005 Computer and information research scientists 15-1221
+1006 Computer systems analysts 15-1211
+1007 Information security analysts 15-1212
+1010 Computer programmers 15-1251
+1021 Software developers 15-1252
+1022 Software quality assurance analysts and testers 15-1253
+1031 Web developers 15-1254
+1032 Web or digital interface designers 15-1255
+1050 Computer support specialists 15-1230
+1065 Database administrators and architects 15-124X
+1105 Network and computer systems administrators 15-1244
+1106 Computer network architects 15-1241
+1108 Computer occupations, all other 15-1199
+1200 Actuaries 15-2011
+1220 Operations research analysts 15-2031
+1240 Other mathematical science occupations 15-20XX
+*/
+
+
+tab census_occ if census_occ>=1005 & census_occ<1300
+
+gen OD_C_Prog=.
+replace OD_C_Prog=0 if census_occ>=1005 & census_occ<1300
+replace OD_C_Prog=1 if census_occ>=1010 & census_occ<=1032
+
+tabstat GenAI_perw LLM_perw preLLM_perw, by(OD_C_Prog) stats(n mean)
+
+gen PostxOD_C_Prog= Post*OD_C_Prog
+gen ntimexOD_C_Prog=ntime*OD_C_Prog
+
+reghdfe Dunemp Post OD_C_Prog PostxOD_C_Prog age Dfem i.educ i.race i.region if OD_C_Prog!=., absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_byocc.xls, replace		
+reghdfe ahrswork1 Post OD_C_Prog PostxOD_C_Prog age Dfem i.educ i.race i.region if OD_C_Prog!=., absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_byocc.xls		
+
+
+
+eventdd Dunemp if OD_C_Prog!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_C_Prog) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_Comp.png", replace	
+
+eventdd durunemp if OD_C_Prog!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_C_Prog) ci(rcap) graph_op(ytitle("Duration unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/durunemp_Comp.png", replace	
+
+eventdd ahrswork1 if OD_C_Prog!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_C_Prog) ci(rcap) graph_op(ytitle("Hours worked") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/hoursworked_Comp.png", replace	
+
+eventdd Fulltime if OD_C_Prog!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_C_Prog) ci(rcap) graph_op(ytitle("Hours worked") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/durunemp_Comp.png", replace	
+
+
+********************
+* softwaredev only
+********************
+eventdd Dunemp if census_occ==1021, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_softwaredev.png", replace	
+
+
+
+
+********************************************************************
+/*** Management vs. Operations */
+********************************************************************
+/*
+Management Occupations
+0010 Chief executives 11-1011
+0020 General and operations managers 11-1021
+0040 Advertising and promotions managers 11-2011
+0051 Marketing managers 11-2021
+0052 Sales managers 11-2022
+0060 Public relations and fundraising managers 11-2030
+0101 Administrative services managers 11-3012
+0102 Facilities managers 11-3013
+0110 Computer and information systems managers 11-3021
+0120 Financial managers 11-3031
+0135 Compensation and benefits managers 11-3111
+0136 Human resources managers 11-3121
+0137 Training and development managers 11-3131
+0140 Industrial production managers 11-3051
+0150 Purchasing managers 11-3061
+0160 Transportation, storage, and distribution managers 11-3071
+0205 Farmers, ranchers, and other agricultural managers 11-9013
+0220 Construction managers 11-9021
+0230 Education and childcare administrators 11-9030
+0300 Architectural and engineering managers 11-9041
+0310 Food service managers 11-9051
+0335 Entertainment and recreation managers 11-9070
+0340 Lodging managers 11-9081
+0350 Medical and health services managers 11-9111
+0360 Natural sciences managers 11-9121
+0410 Property, real estate, and community association managers 11-9141
+0420 Social and community service managers 11-9151
+0425 Emergency management directors 11-9161
+0440 Other managers 11-91X
+
+Business and Financial Operations Occupations
+0500 Agents and business managers of artists, performers, and athletes 13-1011
+0510 Buyers and purchasing agents, farm products 13-1021
+0520 Wholesale and retail buyers, except farm products 13-1022
+0530 Purchasing agents, except wholesale, retail, and farm products 13-1023
+0540 Claims adjusters, appraisers, examiners, and investigators 13-1030
+0565 Compliance officers 13-1041
+0600 Cost estimators 13-1051
+0630 Human resource workers 13-1070
+0640 Compensation, benefits, and job analysis specialists 13-1141
+0650 Training and development specialists 13-1151
+0700 Logisticians 13-1081
+0705 Project management specialists 13-1082
+0710 Management analysts 13-1111
+0725 Meeting, convention, and event planners 13-1121
+0726 Fundraisers 13-1131
+0735 Market research analysts and marketing specialists 13-1161
+0750 Business operations specialists, all other 13-1199
+0800 Accountants and auditors 13-2011
+0810 Property appraisers and assessors 13-2020
+0820 Budget analysts 13-2031
+0830 Credit analysts 13-2041
+0845 Financial and investment analysts 13-2051
+0850 Personal financial advisors 13-2052
+0860 Insurance underwriters 13-2053
+0900 Financial examiners 13-2061
+0910 Credit counselors and loan officers 13-2070
+0930 Tax examiners and collectors, and revenue agents 13-2081
+0940 Tax preparers 13-2082
+0960 Other financial specialists 13-20X
+******************************************************************** */
+
+gen OD_MgOp_Op=. 
+replace OD_MgOp_Op=0 if floor(census_occ/100)<10
+replace OD_MgOp_Op=1 if floor(census_occ/100)>=5 & floor(census_occ/100)<10
+
+tab census_occ if OD_MgOp_Op~=.
+
+gen PostxOD_MgOp_Op= Post*OD_MgOp_Op
+
+tabstat GenAI_perw LLM_perw preLLM_perw, by(OD_MgOp_Op) stats(n mean)
+
+gen ntimexOD_MgOp_Op=ntime*OD_MgOp_Op
+
+reghdfe Dunemp Post OD_MgOp_Op PostxOD_MgOp_Op age Dfem i.educ i.race i.region if OD_MgOp_Op!=., absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_byocc.xls, 		
+reghdfe ahrswork1 Post OD_MgOp_Op PostxOD_MgOp_Op age Dfem i.educ i.race i.region if OD_MgOp_Op!=., absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_byocc.xls		
+
+eventdd Dunemp if OD_MgOp_Op!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_MgOp_Op) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_Operations.png", replace	
+
+eventdd ahrswork1 if OD_MgOp_Op!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_MgOp_Op) ci(rcap) graph_op(ytitle("Hours worked") xtitle("Month since ChatGPT (Dec. 2022=0)"))
+graph export "graphs/hoursworked_Operations.png", replace	
+
+
+* 
+
+eventdd Dunemp if census_occ==800, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_accountants.png", replace	
+
+eventdd Dunemp if census_occ==51, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_marketingmanager.png", replace	
+
+eventdd Dunemp if census_occ==735, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_marketingspecialist.png", replace	
+
+********************************************************************
+/*** Within White Collar Jobs */
+********************************************************************
+/* Specific occupations 
+* TREATMENT
+* Primary writing jobs
+5820 Word processors and typists
+5860 Office clerks, general
+5910 Proofreaders and copy markers
+5940 Office and administrative support workers, including desktop publishers
+
+* Clerks - Information/ record clerk jobs
+5140 Payroll and timekeeping clerks 43-3051
+5150 Procurement clerks 43-3061
+5160 Tellers 43-3071
+5165 Financial clerks, all other 43-3099
+5220 Court, municipal, and license clerks 43-4031
+5230 Credit authorizers, checkers, and clerks 43-4041
+5240 Customerservice representatives 43-4051
+5250 Eligibility interviewers, government programs 43-4061
+5260 File Clerks 43-4071
+5300 Hotel, motel, and resort desk clerks 43-4081
+5310 Interviewers, except eligibility and loan 43-4111
+5320 Library assistants, clerical 43-4121
+5330 Loan interviewers and clerks 43-4131
+5340 New accounts clerks 43-4141
+5350 Order clerks 43-4151
+5360 Human resources assistants, except payroll and timekeeping 43-4161
+5400 Receptionists and information clerks 43-4171
+5410 Reservation and transportation ticket agents and travel clerks 43-4181
+5420 Information and record clerks, all other 43-4199
+
+* Secretaries
+5710 Executive secretaries and executive administrative assistants 43-6011
+5720 Legal secretaries and administrative assistants 43-6012
+5730 Medical secretaries and administrative assistants 43-6013
+5740 Secretaries and administrative assistants, except legal, medical, and executive 43-6014
+
+
+* CONTROL
+*** Less exposed groups- control groups
+Food Preparation and Serving Related Occupations
+4000 Chefs and head cooks 35-1011
+4010 First-line supervisors of food preparation and serving workers 35-1012
+4020 Cooks 35-2010
+4030 Food preparation workers 35-2021
+4040 Bartenders 35-3011
+4055 Fast food and counter workers 35-3023
+4110 Waiters and waitresses 35-3031
+4120 Food servers, non-restaurant 35-3041
+4130 Dining room and cafeteria attendants and bartender helpers 35-9011
+4140 Dishwashers 35-9021
+4150 Hosts and hostesses, restaurant, lounge, and coffee shop 35-9031
+4160 Food preparation and serving related workers, all other 35-9099
+Building and Grounds Cleaning and Maintenance Occupations
+4200 First-line supervisors of housekeeping and janitorial workers 37-1011
+4210 First-line supervisors of landscaping, lawn service, and grounds keeping workers 37-1012
+4220 Janitors and building cleaners 31-201X
+4230 Maids and housekeeping cleaners 37-2012
+4240 Pest control workers 37-2021
+4251 Landscaping and grounds keeping workers 37-3011
+4252 Tree trimmers and pruners 37-3013
+4255 Other grounds maintenance workers 37-301X
+
+*/
+*** Specific occupations 
+		
+gen OD_OffSer_Off=.
+replace OD_OffSer_Off=0 if floor(census_occ/100)==58 | floor(census_occ/100)==59 | floor(census_occ/100)==57 | (floor(census_occ/100)>=51 & floor(census_occ/100)<=54) | (floor(census_occ/100)>=40 & floor(census_occ/100)<=42)
+
+replace OD_OffSer_Off=1 if floor(census_occ/100)==58 | floor(census_occ/100)==59 | floor(census_occ/100)==57 | (floor(census_occ/100)>=51 & floor(census_occ/100)<=54)
+
+tab census_occ if OD_OffSer_Off~=.
+
+
+gen PostxOD_OffSer_Off= Post*OD_OffSer_Off
+
+tabstat GenAI_perw LLM_perw preLLM_perw, by(OD_OffSer_Off) stats(n mean)
+
+gen ntimexOD_OffSer_Off=ntime*OD_OffSer_Off
+
+eventdd Dunemp if OD_OffSer_Off!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_OffSer_Off) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_Office.png", replace	
+
+
+
+* 
+eventdd Dunemp if census_occ==5740, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_secretaries.png", replace	
+	
+eventdd Dunemp if census_occ==5120, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_accounting.png", replace	
+	
+
+********************************************************************
+/*** Within Legal Occupations */
+********************************************************************
+/* Legal Occupations vs. Teachers */ 
+/*
+2100 Lawyers 23-1011
+2105 Judicial law clerks 23-1012
+2145 Paralegals and legal assistants 23-2011
+2170 Title examiners, abstractors, and searchers 23-2093
+2180 Legal support workers, all other 23-2099
+
+2300 Preschool and kindergarten teachers 25-2010
+2310 Elementary and middle school teachers 25-2020
+2320 Secondary school teachers 25-2030
+2330 Special education teachers 25-2050
+2350 Tutors 25-3041
+2360 Other teachers and instructors 25-30XX
+
+
+3040 Optometrists 29-1041
+3050 Pharmacists 29-1051
+3090 Physicians 29-1210
+3100 Surgeons 29-1240
+3110
+3120
+Physician assistants
+Podiatrists
+29-1071
+29-1081
+3140 Audiologists 29-1181
+*/
+
+
+tab census_occ if floor(census_occ/100)==21 | (census_occ>=3040 & census_occ<=3140)
+
+tabstat GenAI_perw LLM_perw preLLM_perw if floor(census_occ/100)==21 | (census_occ>=3040 & census_occ<=3140), by(census_occ) stats(n mean)
+
+gen OD_LegDoc_Leg=1 if floor(census_occ/100)==21 | (census_occ>=3040 & census_occ<=3140)
+replace OD_LegDoc_Leg=0 if floor(census_occ/100)==21 /* these are legs */
+
+gen ntimexOD_LegDoc_Leg=ntime*OD_LegDoc_Leg
+gen PostxOD_LegDoc_Leg=Post*OD_LegDoc_Leg
+
+
+reghdfe Dunemp Post OD_LegDoc_Leg PostxOD_LegDoc_Leg age Dfem i.educ i.race i.region if OD_LegDoc_Leg!=., absorb(census_occ time) vce(rob)
+
+
+	outreg2 using ddresults_byocc.xls, replace		
+reghdfe ahrswork1 Post OD_C_Prog PostxOD_C_Prog age Dfem i.educ i.race i.region if OD_C_Prog!=., absorb(census_occ time) vce(rob)
+	outreg2 using ddresults_byocc.xls		
+
+
+
+
+
+eventdd Dunemp if OD_Leg_nonlawyers!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_Leg_nonlawyers) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_legal.png", replace	
+
+********************
+* Lawyers only
+********************
+eventdd Dunemp if census_occ==2100, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_lawyers.png", replace	
+
+eventdd Dunemp if census_occ==2100, hdfe absorb(i.cpsidp i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_lawyers_i.png", replace		
+
+eventdd durunemp if census_occ==2100, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Duration unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/durunemp_lawyers.png", replace	
+
+eventdd ahrswork1 if census_occ==2100, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Hours worked") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/hoursworked_lawyers.png", replace	
+
+eventdd ahrswork1 if census_occ==2100, hdfe absorb(i.cpsidp i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Hours worked") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/hoursworked_lawyers_i.png", replace
+
+********************
+* Paralegals legal assistants
+********************
+eventdd Dunemp if census_occ==2145, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_paralegals.png", replace	
+
+
+********************
+* Teachers
+********************
+eventdd Dunemp if floor(census_occ/100)==23, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_teachers.png", replace	
+	
+********************
+* Doctors
+********************
+eventdd Dunemp if (census_occ>=3040 & census_occ<=3140), hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_docs.png", replace	
+
+
+********************************************************************
+/*** Within Arts */
+********************************************************************
+
+gen OD_Art_hi=0 if floor(census_occ/100)>=26 & floor(census_occ/100)<=29
+replace OD_Art_hi=1 if census_occ==2830 | census_occ==2840 | census_occ==2850 | census_occ==2861
+
+tab census_occ if floor(census_occ/100)>=26 & floor(census_occ/100)<=29
+
+gen ntimexOD_Art_hi=ntime*OD_Art_hi
+
+eventdd Dunemp if OD_Art_hi!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_Art_hi) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_art.png", replace	
+
+eventdd durunemp if OD_Art_hi!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_Art_hi) ci(rcap) graph_op(ytitle("Duration unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/durunemp_art.png", replace	
+
+eventdd ahrswork1 if OD_Art_hi!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_Art_hi) ci(rcap) graph_op(ytitle("Hours worked") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/hoursworked_art.png", replace	
+
+eventdd Fulltime if OD_Art_hi!=., hdfe absorb(i.census_occ i.year) timevar(ntimexOD_Art_hi) ci(rcap) graph_op(ytitle("Full time") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/Fulltime_art.png", replace	
+
+
+* By occupation
+eventdd Dunemp if census_occ==2830, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_editors.png", replace	
+	
+
+eventdd Dunemp if census_occ==2830, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_editors.png", replace	
+	
+
+eventdd Dunemp if census_occ==2850, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_writers.png", replace		
+
+
+eventdd Dunemp if census_occ==2634, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_graphic.png", replace		
+
+
+eventdd Dunemp if census_occ==2600, hdfe absorb(i.census_occ i.year) timevar(ntime) ci(rcap) graph_op(ytitle("Unemployed") xtitle("Month since ChatGPT (Dec. 2022=0)")) 
+graph export "graphs/unemp_artist.png", replace		
+
+
+
+
+
+
+****************************************************************************************************
+****************************************************************************************************
+/*** Within Healthcare Practitioners and Technical Operations */
+* Primary coding jobs
+* Treatment
+3322 Diagnostic medical sonographers 29-2032
+3323 Radiologic technologists and technicians 29-2034
+3324 Magnetic resonance imaging technologists 29-2035
+3515 Medical records specialists 29-2072
+
+* Control
+
+
+
+
+
+
+****************************************************************************************************
+****************************************************************************************************
+* Management and consulting/ managers/ marketing/ 
+
+
