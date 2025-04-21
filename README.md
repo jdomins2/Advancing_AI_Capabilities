@@ -1,5 +1,5 @@
 # AI-Workforce-Dynamics
-This repository contains code and data used in the creation of ***Workforce Dynamics in the Age of AI*** by Yong Suk Lee.
+This repository contains code and data used in the creation of ***Advancing AI Capabilities and Evolving Labor Outcomes*** by Yong Suk Lee and Jacob Dominski.
 
 ## Repository Structure
 ### Code
