@@ -1,4 +1,4 @@
-# AI-Workforce-Dynamics
+# Advancing AI Capabilities and Evolving Labor Outcomes
 This repository contains code and data used in the creation of ***Advancing AI Capabilities and Evolving Labor Outcomes*** by Yong Suk Lee and Jacob Dominski.
 
 ## Repository Structure
