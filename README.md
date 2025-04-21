@@ -5,8 +5,10 @@ This repository contains code and data used in the creation of ***Workforce Dyna
 ### Code
 - `README.md` - This file, explaining the project.
 - `ai_exposure_aggregation_onet_level.do` - Stata script for aggregating task exposure scores to ONET level exposure scores and cleaning this data before the crosswalk.
-- `ai_exposure_crosswalk_to_scores_v2.do` - Stata script for mapping ONET level exposure scores to CPS level occupations.
- - **TODO:** Integrate code from `cps_clean_merge.do` so all aggregation, merging, and cleaning happens in one file.
+- `ai_exposure_crosswalk_to_scores_v4.do` - Stata script for mapping ONET level exposure scores to CPS level occupations and merging exposure scores with CPS and ASEC data.
+-  `analysis_cps_monthlies_030125` - Stata script for conducting the main analysis that uses CPS data. This includes the code for the fixed effects, occupational-level first-difference, and difference-in-differences regressions.
+-  `cps_het_41025.do` - Stata script for estimating the occupational-level heterogeneity in the effect of exposure.
+-  `cps_monthly_visuals` - Stata script for creating the residuals used in the residualized scatter plots. 
 - `cps_event_study.do` - Stata script for creating the event studies used in the exploratory phase of the paper.
 ### Data
 - `monthly_cps_v1.dta` - A CPS extract containing observations from January 2010 through January 2025
