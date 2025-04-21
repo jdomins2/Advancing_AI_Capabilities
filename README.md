@@ -11,7 +11,6 @@ This repository contains code and data used in the creation of ***Advancing AI C
 -  `cps_monthly_visuals` - Stata script for creating the residuals used in the residualized scatter plots.
 -  `resid_bubbles_v2.ipynb` - Python script for creating the residualized bubble scatter plots. 
 - `cps_event_study.do` - Stata script for creating the event studies used in the exploratory phase of the paper.
-- 
 ### Data
 - `monthly_cps_v1.dta` - A CPS extract containing observations from January 2010 through January 2025
 - `monthly_cps_v2.dta` A CPS extract containing observations from January 2020 through February 2025
