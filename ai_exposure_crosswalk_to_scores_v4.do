@@ -15,10 +15,15 @@ global export_root = "/Users/jdomins2/Desktop/CPS_Work/Output"
 global deflator_root = "/Users/jdomins2/Desktop/CPS_Work/Deflators"
 global code_root = "/Users/jdomins2/Desktop/CPS_Work/Code"
 
+use "$crosswalk_root/onet_to_cps_crosswalk_cleaned.dta", clear
+duplicates tag onet_code soc_code cps_code, generate(tag_exact)
+
 ********************************************************************************************************************
 **************************************** Merging Exposure Data w/ Crosswalk ****************************************
 ********************************************************************************************************************
 use "$crosswalk_root/onet_to_cps_crosswalk_cleaned.dta", clear
+duplicates tag onet_code soc_code cps_code, generate(tag_exact)
+
 
 *** Merge with AI Exposure Scores (ONET-Level) ***
 merge m:1 onet_code using "$data_root/AI_exposure/v2/Working/onet_exposure_openai_claude_llama_v2.dta"
@@ -196,6 +201,7 @@ drop cps_openai_pct_high_conf_s1 cps_openai_pct_high_conf_s2 cps_openai_pct_high
 
 drop cps_claude_pct_high_conf_s1 cps_claude_pct_high_conf_s2 cps_claude_pct_high_conf_s3 cps_claude_pct_high_conf_s4 cps_claude_pct_high_conf_s5 cps_claude_pct_medium_conf_s1 cps_claude_pct_medium_conf_s2 cps_claude_pct_medium_conf_s3 cps_claude_pct_medium_conf_s4 cps_claude_pct_medium_conf_s5 cps_claude_pct_low_conf_s1 cps_claude_pct_low_conf_s2 cps_claude_pct_low_conf_s3 cps_claude_pct_low_conf_s4 cps_claude_pct_low_conf_s5
  
+destring cps_code, replace 
 save "$data_root/Ai_Exposure/v2/Cleaned/occ_exposure_openAI_claude_llama_v2.dta", replace
 
 ********************************************************************************************************************
@@ -203,7 +209,9 @@ save "$data_root/Ai_Exposure/v2/Cleaned/occ_exposure_openAI_claude_llama_v2.dta"
 ********************************************************************************************************************
 
 
-use "$data_root/Cleaned/monthly_cps_cleaned_v2", clear
+use "$data_root/CPS/monthly_cps_march25", clear
+rename occ cps_code
+drop if cps_code == 0
 merge m:1 cps_code using "$data_root/Ai_Exposure/v2/Cleaned/occ_exposure_openAI_claude_llama_v2.dta"
 
 preserve
@@ -216,14 +224,14 @@ list cps_code
 restore
 
 * 13 Unique CPS observations unmatched with AI exposure scores; These occupations have the CPS codes: 2006 2014, 2060, 2180, 2770, 2865, 4160, 4655, 4965, 5040, 7855, 9150, 9840. The first 12 correspond to occupations that end with ",all other," for which we don't expect to have exposure scores. The last is military for which we also don't have exposure scores.
+co
 
 
-
-drop if cps_code == "0"
+drop if cps_code == 0
 drop if _merge == 1
 drop if _merge == 2
 drop _merge
-save "$data_root/Cleaned/monthly_cps_w_exp_v2.dta", replace
+save "$data_root/Cleaned/monthly_cps_w_exp_march25.dta", replace
 
 ********************************************************************************************************************
 *********************************************** Merging w/ ASEC Data ***********************************************
@@ -245,3 +253,5 @@ drop if _merge == 1
 drop if _merge == 2
 drop _merge
 save "$data_root/Cleaned/ASEC_w_scores_v1.dta", replace
+
+
