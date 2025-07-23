@@ -288,7 +288,7 @@ foreach var in NR_CA NR_CI RC RM NRMP offshore {
 }
 
 collapse (sum) NR_CA_onet_wt NR_CI_onet_wt RC_onet_wt RM_onet_wt NRMP_onet_wt offshore_onet_wt, by(cps_code soc_code)
-save "$data_root/Working/soc_AA_routine.dta", replace
+save "$data_root/Working/soc_for_oews_AA_routine.dta", replace
 
 import excel "/Users/jdomins2/Desktop/CPS_Work/Crosswalks/Online/BLS/employment_data_soc.xlsx", firstrow clear
 duplicates list soc_code
@@ -323,10 +323,2584 @@ rename RM_socwt RM
 rename NRMP_socwt NRMP
 rename offshore_socwt offshore
 
+destring cps_code, replace
+
 save "$data_root/Working/soc_AA_routine.dta", replace
+
+********************************************* Merging w/ CPS Data *********************************************
 
 merge 1:m cps_code using "$data_root/Cleaned/monthly_cps_w_exp_v2.dta"
 
+rename cps_openai_final_exp_s* openai*
+rename cps_claude_final_exp_s* claude*
+rename cps_llama_final_exp_s* llama*
+
+save "$data_root/Cleaned/cps_w_exp_rout_v3.dta", replace
+
 *** We are missing 15 unique CPS occupations (1021, 2755, 3401, 3402, 3515, 3725, 3946, 4840, 60, 6115, 705, 845, 9121, 9141, 9142); these occupations do not have work activity data. 
 
+use "$data_root/Working/soc_AA_routine.dta", clear
+merge 1:m cps_code using "$data_root/Cleaned/6M_LD_Stageexp.dta"
+save "$data_root/Cleaned/6M_LD_AA.dta", replace
+
+gen d_openai_2_1 = openai2 - openai1
+gen d_openai_4_3 = openai4 - openai3
+gen d_claude_2_1 = claude2 - claude1
+gen d_claude_4_3 = claude4 - claude3
+
+save "$data_root/Cleaned/6M_LD_AA.dta", replace
+
+*********************************************** Analysis ************************************************
+
+
+*** Indices on Outcomes ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+		prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_ld_s2_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_ld_s2_AA.tex", append
+    }
+}
+
+*** Indices on Exposure (w/ controls) ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+local outcomes openai1 openai2 openai3 chatgptexp claude1 claude2 claude3 claudeexp
+
+foreach y in `outcomes' {
+    reg `y' NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "openai1" {
+        outreg2 using "$export_root/April/TEX/AA/6M_ld_exp_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_ld_exp_AA.tex", append
+    }
+}
+
+*** Correlation between indices and exposure ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes openai1 openai2 openai3 claude1 claude2 claude3
+
+foreach y in `outcomes' {
+    pwcorr `y' NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt]
+    
+    if "`y'" == "openai1" {
+        outreg2 using "$export_root/April/TEX/AA/6M_corr_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_corr_AA.tex", append
+    }
+}
+
+*** Preferred Specification w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' openai2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_wexp_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_wexp_AA.tex", append
+    }
+}
+
+*** Preferred Specification w/ indices as controls (only using occupations w/ >= 50 avg. monthly obs. in 2022) ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' openai2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_g50_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_g50_AA.tex", append
+    }
+}
+
+*** Indices on Exposure (w/out controls) ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes openai1 openai2 openai3 claude1 claude2 claude3
+
+foreach y in `outcomes' {
+    reg `y' NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "openai1" {
+        outreg2 using "$export_root/April/TEX/AA/6M_exp_NC_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_exp_NC_AA.tex", append
+    }
+}
+
+*** Difference in OpenAI exposure (stage 2 - stage 1) w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+gen d_openai_2_1 = openai2 - openai1
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' d_openai_2_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_2_1_OA_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_2_1_OA_AA.tex", append
+    }
+}
+
+
+*** Difference in OpenAI exposure (stage 3 - stage 1) w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_3_1_OA_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_3_1_OA_AA.tex", append
+    }
+}
+
+*** Difference in OpenAI exposure (stage 3 - stage 2) w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' d_openai_3_2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_3_2_OA_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_3_2_OA_AA.tex", append
+    }
+}
+
+*** Difference in OpenAI exposure (stage 4 - stage 1) w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_4_1_OA_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_4_1_OA_AA.tex", append
+    }
+}
+
+*** Difference in OpenAI exposure (stage 4 - stage 2) w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' d_openai_4_2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_4_2_OA_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_4_2_OA_AA.tex", append
+    }
+}
+
+*** Difference in OpenAI exposure (stage 4 - stage 3) w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+gen d_openai_4_3 = openai4 - openai3
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' d_openai_4_3 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/AA/6M_4_3_OA_AA.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/AA/6M_4_3_OA_AA.tex", append
+    }
+}
+
+*** Difference in OpenAI exposure (stage 4 - stage 2) w/ indices as controls ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+}
+
+*** Indices on Differences in OpenAI Exposures (w/out controls) ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_openai_2_1 d_openai_3_1 d_openai_3_2 d_openai_4_1 d_openai_4_2 d_openai_4_3
+
+foreach y in `outcomes' {
+    reg `y' NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "openai1" {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_OA_NC.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_OA_NC.tex", append
+    }
+}
+
+*** Indices on Differences in OpenAI Exposures (w controls) ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_openai_2_1 d_openai_3_1 d_openai_3_2 d_openai_4_1 d_openai_4_2 d_openai_4_3
+
+foreach y in `outcomes' {
+    reg `y' NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "openai1" {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_OA_WC.tex", keep(NR_CA NR_CI RC RM NRMP) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_OA_WC.tex", keep(NR_CA NR_CI RC RM NRMP) append
+    }
+}
+
+*** Indices on Differences in Claude Exposures (w/out controls) ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_claude_2_1 d_claude_3_1 d_claude_3_2 d_claude_4_1 d_claude_4_2 d_claude_4_3
+
+foreach y in `outcomes' {
+    reg `y' NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_claude_2_1" {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_Claude_NC.tex", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_Claude_NC.tex", append
+    }
+}
+
+*** Indices on Differences in Claude Exposures (w controls) ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_claude_2_1 d_claude_3_1 d_claude_3_2 d_claude_4_1 d_claude_4_2 d_claude_4_3
+
+foreach y in `outcomes' {
+    reg `y' NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_claude_2_1" {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_Claude_WC.tex", keep(NR_CA NR_CI RC RM NRMP) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/AA_Dexp_Claude_WC.tex", keep(NR_CA NR_CI RC RM NRMP) append
+    }
+}
+
+*************************************************************************************************************************
+*********************************************** Analysis (First-Diff; 4/30) *********************************************
+*************************************************************************************************************************
+
+*********************************************************** S2-S1 *******************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_2_1 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PA.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PA.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_2_1 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/2_1_PA.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_2_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PB.txt", keep(d_openai_2_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PB.txt", keep(d_openai_2_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_2_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/2_1_PB.txt", keep(d_claude_2_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_2_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PC.txt", keep(d_openai_2_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PC.txt", keep(d_openai_2_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_2_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/2_1_PC.txt", keep(d_claude_2_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_2_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PD.txt", keep(d_openai_2_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PD.txt", keep(d_openai_2_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_2_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/2_1_PD.txt", keep(d_claude_2_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_2_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PE.txt", keep(d_openai_2_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PE.txt", keep(d_openai_2_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_2_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/2_1_PE.txt", keep(d_claude_2_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_2_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PF.txt", keep(d_openai_2_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/2_1_PF.txt", keep(d_openai_2_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_2_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/2_1_PF.txt", keep(d_claude_2_1) append
+}
+
+*********************************************************** S3-S1 *******************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PA.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF.txt", keep(d_claude_3_1) append
+}
+
+*********************************************************** S3-S2 *******************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_2 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PA.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PA.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_2 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_2_PA.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PB.txt", keep(d_openai_3_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PB.txt", keep(d_openai_3_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_2_PB.txt", keep(d_claude_3_2) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_2 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PC.txt", keep(d_openai_3_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PC.txt", keep(d_openai_3_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_2 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_2_PC.txt", keep(d_claude_3_2) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PD.txt", keep(d_openai_3_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PD.txt", keep(d_openai_3_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_2_PD.txt", keep(d_claude_3_2) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PE.txt", keep(d_openai_3_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PE.txt", keep(d_openai_3_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_2_PE.txt", keep(d_claude_3_2) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_2 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PF.txt", keep(d_openai_3_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_2_PF.txt", keep(d_openai_3_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_2 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_2_PF.txt", keep(d_claude_3_2) append
+}
+
+*********************************************************** S4-S1 *******************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PA.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PA.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_1 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_1_PA.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PB.txt", keep(d_openai_4_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PB.txt", keep(d_openai_4_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_1_PB.txt", keep(d_claude_4_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PC.txt", keep(d_openai_4_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PC.txt", keep(d_openai_4_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_1_PC.txt", keep(d_claude_4_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PD.txt", keep(d_openai_4_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PD.txt", keep(d_openai_4_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_1_PD.txt", keep(d_claude_4_1) append
+}
+
+*** W/ Differenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PE.txt", keep(d_openai_4_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PE.txt", keep(d_openai_4_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_1_PE.txt", keep(d_claude_4_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PF.txt", keep(d_openai_4_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_1_PF.txt", keep(d_openai_4_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_1_PF.txt", keep(d_claude_4_1) append
+}
+
+*********************************************************** S4-S2 *******************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_2 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PA.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PA.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_2 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_2_PA.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PB.txt", keep(d_openai_4_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PB.txt", keep(d_openai_4_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_2 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_2_PB.txt", keep(d_claude_4_2) append
+}
+
+*** W/ Task Index Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_2 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PC.txt", keep(d_openai_4_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PC.txt", keep(d_openai_4_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_2 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_2_PC.txt", keep(d_claude_4_2) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PD.txt", keep(d_openai_4_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PD.txt", keep(d_openai_4_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_2 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_2_PD.txt", keep(d_claude_4_2) append
+}
+
+*** W/ Differenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PE.txt", keep(d_openai_4_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PE.txt", keep(d_openai_4_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_2 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_2_PE.txt", keep(d_claude_4_2) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_4_2 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PF.txt", keep(d_openai_4_2) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/4_2_PF.txt", keep(d_openai_4_2) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_4_2 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/4_2_PF.txt", keep(d_claude_4_2) append
+}
+
+
+***************************************************** S3-S1 >= 50 *******************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_G50.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_G50.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PA_G50.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_G50.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_G50.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB_G50.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_G50.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_G50.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC_G50.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_G50.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_G50.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_G50.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_G50.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_G50.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE_G50.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_G50.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_G50.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 50 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF_G50.txt", keep(d_claude_3_1) append
+}
+
+**************************************************** S3-S1 Outliers *****************************************************
+*** Baseline FD ***
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+    * Trim 1st and 99th percentile of this outcome
+    sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+
+    reg `y' d_openai_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT.txt", append
+    }
+}
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+    * Trim 1st and 99th percentile of this outcome
+    sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+
+    reg `y' d_claude_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT.txt", append
+}
+	
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT1.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT1.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT1.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT1.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT1.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT1.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT1.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT1.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT1.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT1.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT1.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT1.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT1.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT1.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p1 = r(p1)
+    local p99 = r(p99)
+    drop if `y' < `p1' | `y' > `p99'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT1.txt", keep(d_claude_3_1) append
+}
+
+************************************************** S3-S1 Outliers (5%) **************************************************
+*** Baseline FD ***
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+    * Trim 1st and 99th percentile of this outcome
+    sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+
+    reg `y' d_openai_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT5.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT5.txt", append
+    }
+}
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+    * Trim 1st and 99th percentile of this outcome
+    sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+
+    reg `y' d_claude_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT5.txt", append
+}
+	
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT5.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT5.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT5.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT5.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT5.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT5.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT5.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT5.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT5.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT5.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT5.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT5.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT5.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT5.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT5.txt", keep(d_claude_3_1) append
+}
+
+************************************************* S3-S1 Outliers (10%) **************************************************
+*** Baseline FD ***
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+
+    reg `y' d_openai_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT10.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT10.txt", append
+    }
+}
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+
+    reg `y' d_claude_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT10.txt", append
+}
+	
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+    local p10 = r(p10)
+    local p90 = r(p90)
+    drop if `y' < `p10' | `y' > `p90'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT10.txt", keep(d_claude_3_1) append
+}
+
+
+************************************************* S3-S1 Outliers (25%) **************************************************
+*** Baseline FD ***
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+
+    reg `y' d_openai_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT25.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT25.txt", append
+    }
+}
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+	sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+    reg `y' d_claude_3_1 [aweight = occ_freq_wt], vce(robust)
+    
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_OUT25.txt", append
+}
+	
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT25.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT25.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB_OUT25.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT25.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT25.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC_OUT25.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT25.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT25.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_OUT25.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT25.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT25.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE_OUT25.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT25.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT25.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+    sum `y', detail
+	local p25 = r(p25)
+    local p75 = r(p75)
+    drop if `y' < `p25' | `y' > `p75'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF_OUT25.txt", keep(d_claude_3_1) append
+}
+
+********************************************************** S3-S1 >= 10 ***********************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_G10.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_G10.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PA_G10.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_G10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_G10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB_G10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Index Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_G10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_G10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC_G10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_G10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_G10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_G10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_G10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_G10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE_G10.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_G10.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_G10.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF_G10.txt", keep(d_claude_3_1) append
+}
+
+****************************************************** S3-S1 >= 30 ******************************************************
+*** Baseline FD ***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_G30.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PA_G30.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PA_G30.txt", append
+}
+
+*** W/ Static Demographic Controls***
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_G30.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PB_G30.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PB_G30.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Index Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_G30.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PC_G30.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PC_G30.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indice Controls & Static Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_G30.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_G30.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_G30.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_G30.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PE_G30.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PE_G30.txt", keep(d_claude_3_1) append
+}
+
+*** W/ Task Indices & Defferenced Demographic Controls
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_G30.txt", keep(d_openai_3_1) replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PF_G30.txt", keep(d_openai_3_1) append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP d_prop_age_30to50 d_prop_age_50plus d_prop_black ///
+        d_prop_asian d_prop_native d_prop_mixed_other d_prop_pacific ///
+        d_prop_educ_q1 d_prop_educ_q2 d_prop_educ_q3 d_prop_midwest ///
+        d_prop_northeast d_prop_west d_prop_fem if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PF_G30.txt", keep(d_claude_3_1) append
+}
+
+*************************************************************************************************************************
+******************************************** Analysis (Panel D; All coeffs.) ********************************************
+*************************************************************************************************************************
+
+****************************************************** S3-S1 all ******************************************************
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_FULL.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_FULL.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_FULL.txt", append
+}
+
+********************************************** S3-S1 Excluding 5% outliers **********************************************
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_OUT5.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_OUT5.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	
+	use "$data_root/Cleaned/6M_LD_AA.dta", clear
+	
+	sum `y', detail
+    local p5 = r(p5)
+    local p95 = r(p95)
+    drop if `y' < `p5' | `y' > `p95'
+	
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_OUT5.txt", append
+}
+
+****************************************************** S3-S1 >= 10 ******************************************************
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_G10.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_G10.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 10 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_G10.txt", append
+}
+
+
+****************************************************** S3-S1 >= 30 ******************************************************
+use "$data_root/Cleaned/6M_LD_AA.dta", clear
+
+local outcomes d_log_emp d_unemp_rate d_ahrswork1 d_ahrswork2 d_ahrsworkt d_other_job d_fulltime
+foreach y in `outcomes' {
+    reg `y' d_openai_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+    
+    if "`y'" == "d_log_emp" {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_G30.txt", replace
+    }
+    else {
+        outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_G30.txt", append
+    }
+}
+
+foreach y in `outcomes' {
+	reg `y' d_claude_3_1 NR_CA NR_CI RC RM NRMP prop_age_30to50_2022 prop_age_50plus_2022 prop_black_2022 ///
+        prop_asian_2022 prop_native_2022 prop_mixed_other_2022 prop_pacific_2022 ///
+        prop_educ_q1_2022 prop_educ_q2_2022 prop_educ_q3_2022 prop_midwest_2022 ///
+        prop_northeast_2022 prop_west_2022 prop_fem_2022 if avgobs2022 >= 30 [aweight = occ_freq_wt], vce(robust)
+	outreg2 using "$export_root/April/TEX/FD/3_1_PD_ALL_G30.txt", append
+}
 
